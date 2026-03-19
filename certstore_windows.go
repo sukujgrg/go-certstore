@@ -1,0 +1,417 @@
+//go:build windows && cgo
+
+// Windows CertStore implementation for gocertstore.
+//
+// Based on github.com/github/smimesign/pkg/certstore (Windows implementation).
+// Uses CGo with CNG/CryptoAPI for robust certificate and signing support.
+
+package certstore
+
+/*
+#cgo windows LDFLAGS: -lcrypt32 -lncrypt
+#include <windows.h>
+#include <wincrypt.h>
+#include <ncrypt.h>
+
+// FormatMessage wrapper for Go-friendly error strings.
+static char* formatError(DWORD errCode) {
+    char* msg = NULL;
+    FormatMessageA(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        errCode,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPSTR)&msg,
+        0,
+        NULL
+    );
+    return msg;
+}
+
+// BCRYPT_*_ALGORITHM are wide string macros (L"...") which cgo cannot access
+// directly. Expose them as function calls instead.
+static LPCWSTR getBcryptSHA1Algorithm()   { return BCRYPT_SHA1_ALGORITHM; }
+static LPCWSTR getBcryptSHA256Algorithm() { return BCRYPT_SHA256_ALGORITHM; }
+static LPCWSTR getBcryptSHA384Algorithm() { return BCRYPT_SHA384_ALGORITHM; }
+static LPCWSTR getBcryptSHA512Algorithm() { return BCRYPT_SHA512_ALGORITHM; }
+*/
+import "C"
+
+import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/asn1"
+	"errors"
+	"fmt"
+	"io"
+	"math/big"
+	"unsafe"
+)
+
+// Open opens the Windows "MY" certificate store for the current user.
+func Open() (Store, error) {
+	storeName := C.CString("MY")
+	defer C.free(unsafe.Pointer(storeName))
+
+	h := C.CertOpenSystemStoreA(0, storeName)
+	if h == nil {
+		return nil, lastError("CertOpenSystemStore")
+	}
+	return &winStore{h: h}, nil
+}
+
+type winStore struct {
+	h C.HCERTSTORE
+}
+
+func (s *winStore) Identities() ([]Identity, error) {
+	var idents []Identity
+
+	// Use CertFindChainInStore for proper chain-aware enumeration.
+	var chainPara C.CERT_CHAIN_FIND_BY_ISSUER_PARA
+	chainPara.cbSize = C.DWORD(unsafe.Sizeof(chainPara))
+
+	var prev *C.CERT_CHAIN_CONTEXT
+	for {
+		chainCtx := C.CertFindChainInStore(
+			s.h,
+			C.X509_ASN_ENCODING|C.PKCS_7_ASN_ENCODING,
+			0,
+			C.CERT_CHAIN_FIND_BY_ISSUER,
+			unsafe.Pointer(&chainPara),
+			(*C.CERT_CHAIN_CONTEXT)(unsafe.Pointer(prev)),
+		)
+		if chainCtx == nil {
+			break
+		}
+		prev = chainCtx
+
+		if chainCtx.cChain < 1 {
+			continue
+		}
+
+		// Get the first (and usually only) simple chain.
+		simpleChain := *chainCtx.rgpChain
+		if simpleChain.cElement < 1 {
+			continue
+		}
+
+		// The first element is the end-entity cert.
+		elements := unsafe.Slice(simpleChain.rgpElement, simpleChain.cElement)
+		leafElement := elements[0]
+		certCtx := leafElement.pCertContext
+
+		// Duplicate the cert context so it survives after we free the chain.
+		dup := C.CertDuplicateCertificateContext(certCtx)
+		if dup == nil {
+			continue
+		}
+
+		idents = append(idents, &winIdentity{
+			ctx:      dup,
+			chainCtx: chainCtx,
+		})
+	}
+
+	return idents, nil
+}
+
+func (s *winStore) Close() {
+	if s.h != nil {
+		C.CertCloseStore(s.h, 0)
+		s.h = nil
+	}
+}
+
+type winIdentity struct {
+	ctx      *C.CERT_CONTEXT
+	chainCtx *C.CERT_CHAIN_CONTEXT
+	cert     *x509.Certificate
+}
+
+func (id *winIdentity) Certificate() (*x509.Certificate, error) {
+	if id.cert != nil {
+		return id.cert, nil
+	}
+
+	der := C.GoBytes(unsafe.Pointer(id.ctx.pbCertEncoded), C.int(id.ctx.cbCertEncoded))
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, fmt.Errorf("x509.ParseCertificate: %w", err)
+	}
+	id.cert = cert
+	return cert, nil
+}
+
+func (id *winIdentity) CertificateChain() ([]*x509.Certificate, error) {
+	if id.chainCtx == nil || id.chainCtx.cChain < 1 {
+		cert, err := id.Certificate()
+		if err != nil {
+			return nil, err
+		}
+		return []*x509.Certificate{cert}, nil
+	}
+
+	simpleChain := *id.chainCtx.rgpChain
+	elements := unsafe.Slice(simpleChain.rgpElement, simpleChain.cElement)
+
+	chain := make([]*x509.Certificate, 0, len(elements))
+	for _, elem := range elements {
+		der := C.GoBytes(unsafe.Pointer(elem.pCertContext.pbCertEncoded), C.int(elem.pCertContext.cbCertEncoded))
+		cert, err := x509.ParseCertificate(der)
+		if err != nil {
+			continue
+		}
+		chain = append(chain, cert)
+	}
+	return chain, nil
+}
+
+func (id *winIdentity) Signer() (crypto.Signer, error) {
+	cert, err := id.Certificate()
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		keyHandle  C.HCRYPTPROV_OR_NCRYPT_KEY_HANDLE
+		keySpec    C.DWORD
+		callerFree C.BOOL
+	)
+
+	// Prefer CNG (NCrypt) keys but fall back to CryptoAPI (legacy).
+	ok := C.CryptAcquireCertificatePrivateKey(
+		id.ctx,
+		C.CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG|C.CRYPT_ACQUIRE_SILENT_FLAG,
+		nil,
+		&keyHandle,
+		&keySpec,
+		&callerFree,
+	)
+	if ok == 0 {
+		return nil, lastError("CryptAcquireCertificatePrivateKey")
+	}
+
+	isNCrypt := keySpec == C.CERT_NCRYPT_KEY_SPEC
+	return &winSigner{
+		pub:        cert.PublicKey,
+		keyHandle:  keyHandle,
+		isNCrypt:   isNCrypt,
+		callerFree: callerFree != 0,
+	}, nil
+}
+
+func (id *winIdentity) Close() {
+	if id.ctx != nil {
+		C.CertFreeCertificateContext(id.ctx)
+		id.ctx = nil
+	}
+	if id.chainCtx != nil {
+		C.CertFreeCertificateChain(id.chainCtx)
+		id.chainCtx = nil
+	}
+}
+
+type winSigner struct {
+	pub        crypto.PublicKey
+	keyHandle  C.HCRYPTPROV_OR_NCRYPT_KEY_HANDLE
+	isNCrypt   bool
+	callerFree bool
+}
+
+func (s *winSigner) Public() crypto.PublicKey {
+	return s.pub
+}
+
+func (s *winSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if s.isNCrypt {
+		return s.signNCrypt(digest, opts)
+	}
+	return s.signCryptoAPI(digest, opts)
+}
+
+// signNCrypt signs using CNG (NCrypt).
+func (s *winSigner) signNCrypt(digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	hash := opts.HashFunc()
+	_, isPSS := opts.(*rsa.PSSOptions)
+
+	var paddingInfo unsafe.Pointer
+	var flags C.DWORD = C.NCRYPT_SILENT_FLAG
+
+	switch s.pub.(type) {
+	case *ecdsa.PublicKey:
+		// No padding for ECDSA
+	default:
+		algID, err := ncryptAlgorithmID(hash)
+		if err != nil {
+			return nil, err
+		}
+		if isPSS {
+			// RSA-PSS padding (required by TLS 1.3)
+			padding := C.BCRYPT_PSS_PADDING_INFO{
+				pszAlgId: algID,
+				cbSalt:   C.ULONG(hash.Size()),
+			}
+			paddingInfo = unsafe.Pointer(&padding)
+			flags |= C.BCRYPT_PAD_PSS
+		} else {
+			// RSA PKCS#1 v1.5 padding
+			padding := C.BCRYPT_PKCS1_PADDING_INFO{
+				pszAlgId: algID,
+			}
+			paddingInfo = unsafe.Pointer(&padding)
+			flags |= C.BCRYPT_PAD_PKCS1
+		}
+	}
+
+	// First call: get signature size.
+	var sigLen C.DWORD
+	status := C.NCryptSignHash(
+		C.NCRYPT_KEY_HANDLE(s.keyHandle),
+		paddingInfo,
+		(*C.BYTE)(unsafe.Pointer(&digest[0])),
+		C.DWORD(len(digest)),
+		nil,
+		0,
+		&sigLen,
+		flags,
+	)
+	if status != 0 {
+		return nil, fmt.Errorf("NCryptSignHash (size): SECURITY_STATUS 0x%08x", uint32(status))
+	}
+
+	// Second call: produce the signature.
+	sig := make([]byte, sigLen)
+	status = C.NCryptSignHash(
+		C.NCRYPT_KEY_HANDLE(s.keyHandle),
+		paddingInfo,
+		(*C.BYTE)(unsafe.Pointer(&digest[0])),
+		C.DWORD(len(digest)),
+		(*C.BYTE)(unsafe.Pointer(&sig[0])),
+		sigLen,
+		&sigLen,
+		flags,
+	)
+	if status != 0 {
+		return nil, fmt.Errorf("NCryptSignHash (sign): SECURITY_STATUS 0x%08x", uint32(status))
+	}
+	sig = sig[:sigLen]
+
+	// CNG returns raw ECDSA signatures (r || s); Go expects ASN.1 DER.
+	if ecPub, ok := s.pub.(*ecdsa.PublicKey); ok {
+		return ecdsaRawToASN1(sig, ecPub)
+	}
+
+	return sig, nil
+}
+
+// signCryptoAPI signs using the legacy CryptoAPI.
+func (s *winSigner) signCryptoAPI(digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	hash := opts.HashFunc()
+
+	algID, err := cryptoAPIAlgID(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	var cryptHash C.HCRYPTHASH
+	if ok := C.CryptCreateHash(C.HCRYPTPROV(s.keyHandle), algID, 0, 0, &cryptHash); ok == 0 {
+		return nil, lastError("CryptCreateHash")
+	}
+	defer C.CryptDestroyHash(cryptHash)
+
+	if ok := C.CryptSetHashParam(cryptHash, C.HP_HASHVAL, (*C.BYTE)(unsafe.Pointer(&digest[0])), 0); ok == 0 {
+		return nil, lastError("CryptSetHashParam")
+	}
+
+	// Get signature size.
+	var sigLen C.DWORD
+	if ok := C.CryptSignHashW(cryptHash, C.AT_KEYEXCHANGE, nil, 0, nil, &sigLen); ok == 0 {
+		if ok = C.CryptSignHashW(cryptHash, C.AT_SIGNATURE, nil, 0, nil, &sigLen); ok == 0 {
+			return nil, lastError("CryptSignHash (size)")
+		}
+	}
+
+	sig := make([]byte, sigLen)
+	if ok := C.CryptSignHashW(cryptHash, C.AT_KEYEXCHANGE, nil, 0, (*C.BYTE)(unsafe.Pointer(&sig[0])), &sigLen); ok == 0 {
+		if ok = C.CryptSignHashW(cryptHash, C.AT_SIGNATURE, nil, 0, (*C.BYTE)(unsafe.Pointer(&sig[0])), &sigLen); ok == 0 {
+			return nil, lastError("CryptSignHash")
+		}
+	}
+	sig = sig[:sigLen]
+
+	// CryptoAPI returns the signature in little-endian; reverse it.
+	for i, j := 0, len(sig)-1; i < j; i, j = i+1, j-1 {
+		sig[i], sig[j] = sig[j], sig[i]
+	}
+
+	return sig, nil
+}
+
+// ecdsaRawToASN1 converts a CNG raw ECDSA signature (r || s) to ASN.1 DER
+// encoding as expected by Go's crypto/ecdsa verification.
+func ecdsaRawToASN1(raw []byte, pub *ecdsa.PublicKey) ([]byte, error) {
+	keySize := (pub.Curve.Params().BitSize + 7) / 8
+	if len(raw) != 2*keySize {
+		return nil, fmt.Errorf("invalid ECDSA signature length: got %d, want %d", len(raw), 2*keySize)
+	}
+
+	type ecdsaSig struct {
+		R, S *big.Int
+	}
+
+	r := new(big.Int).SetBytes(raw[:keySize])
+	s := new(big.Int).SetBytes(raw[keySize:])
+
+	return asn1.Marshal(ecdsaSig{R: r, S: s})
+}
+
+// ncryptAlgorithmID maps a crypto.Hash to the CNG algorithm identifier string.
+func ncryptAlgorithmID(hash crypto.Hash) (C.LPCWSTR, error) {
+	switch hash {
+	case crypto.SHA1:
+		return C.getBcryptSHA1Algorithm(), nil
+	case crypto.SHA256:
+		return C.getBcryptSHA256Algorithm(), nil
+	case crypto.SHA384:
+		return C.getBcryptSHA384Algorithm(), nil
+	case crypto.SHA512:
+		return C.getBcryptSHA512Algorithm(), nil
+	default:
+		return nil, ErrUnsupportedHash
+	}
+}
+
+// cryptoAPIAlgID maps a crypto.Hash to a CryptoAPI ALG_ID.
+func cryptoAPIAlgID(hash crypto.Hash) (C.ALG_ID, error) {
+	switch hash {
+	case crypto.SHA1:
+		return C.CALG_SHA1, nil
+	case crypto.SHA256:
+		return C.CALG_SHA_256, nil
+	case crypto.SHA384:
+		return C.CALG_SHA_384, nil
+	case crypto.SHA512:
+		return C.CALG_SHA_512, nil
+	default:
+		return 0, ErrUnsupportedHash
+	}
+}
+
+// lastError returns a Go error from GetLastError with a formatted message.
+func lastError(context string) error {
+	code := C.GetLastError()
+	msg := C.formatError(code)
+	if msg != nil {
+		defer C.LocalFree(C.HLOCAL(unsafe.Pointer(msg)))
+		return fmt.Errorf("%s: %s (0x%08x)", context, C.GoString(msg), uint32(code))
+	}
+	return fmt.Errorf("%s: error 0x%08x", context, uint32(code))
+}
+
+// suppress unused import warnings
+var _ = elliptic.P256
+var _ = errors.New

@@ -1,0 +1,10 @@
+# Ignore everything
+*
+
+# Allow these
+!.gitignore
+!LICENSE
+!README.md
+!go.mod
+!go.sum
+!*.go
