@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"unsafe"
 )
 
@@ -26,8 +27,8 @@ import (
 */
 import "C"
 
-// Open opens the macOS Keychain and returns a Store for enumerating identities.
-func Open() (Store, error) {
+// openNativeStore opens the macOS Keychain and returns a Store for enumerating identities.
+func openNativeStore() (Store, error) {
 	return &macStore{}, nil
 }
 
@@ -78,6 +79,50 @@ type macIdentity struct {
 	cert    *x509.Certificate
 	certRaw []byte
 	keyRef  C.SecKeyRef
+}
+
+func (id *macIdentity) Label() string {
+	cert, err := id.Certificate()
+	if err != nil {
+		return ""
+	}
+	return identityLabelFromCert(cert)
+}
+
+func (id *macIdentity) Backend() Backend {
+	return BackendDarwin
+}
+
+func (id *macIdentity) KeyType() string {
+	cert, err := id.Certificate()
+	if err != nil {
+		return ""
+	}
+	return identityKeyTypeFromCert(cert)
+}
+
+func (id *macIdentity) IsHardwareBacked() bool {
+	return false
+}
+
+func (id *macIdentity) RequiresLogin() bool {
+	return false
+}
+
+func (id *macIdentity) HardwareBackedState() CapabilityState {
+	return CapabilityUnknown
+}
+
+func (id *macIdentity) LoginRequiredState() CapabilityState {
+	return CapabilityUnknown
+}
+
+func (id *macIdentity) URI() string {
+	cert, err := id.Certificate()
+	if err != nil {
+		return ""
+	}
+	return identityURIFromCert(BackendDarwin, cert)
 }
 
 func (id *macIdentity) Certificate() (*x509.Certificate, error) {
@@ -206,10 +251,12 @@ func (id *macIdentity) Signer() (crypto.Signer, error) {
 	// the signer is still in use (e.g. for TLS handshakes).
 	C.CFRetain(C.CFTypeRef(id.keyRef))
 
-	return &macSigner{
+	signer := &macSigner{
 		keyRef: id.keyRef,
 		pub:    cert.PublicKey,
-	}, nil
+	}
+	runtime.SetFinalizer(signer, (*macSigner).release)
+	return signer, nil
 }
 
 func (id *macIdentity) Close() {
@@ -227,6 +274,19 @@ func (id *macIdentity) Close() {
 type macSigner struct {
 	keyRef C.SecKeyRef
 	pub    crypto.PublicKey
+}
+
+func (s *macSigner) release() {
+	if s.keyRef != 0 {
+		C.CFRelease(C.CFTypeRef(s.keyRef))
+		s.keyRef = 0
+	}
+}
+
+func (s *macSigner) Close() error {
+	runtime.SetFinalizer(s, nil)
+	s.release()
+	return nil
 }
 
 func (s *macSigner) Public() crypto.PublicKey {

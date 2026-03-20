@@ -15,57 +15,23 @@ import (
 // certificate by CN and issuer, then use it for mTLS.
 func Example_mTLS() {
 	tlsConfig := &tls.Config{
-		GetClientCertificate: getCertificate("myhost.example.com", "My Issuing CA"),
+		GetClientCertificate: certstore.GetClientCertificateFunc(nil, certstore.SelectOptions{
+			SubjectCN:            "myhost.example.com",
+			IssuerCN:             "My Issuing CA",
+			RequireClientAuthEKU: true,
+		}),
 	}
 	_ = tlsConfig // use with http.Transport, tls.Dial, etc.
 }
 
 // getCertificate returns a callback suitable for tls.Config.GetClientCertificate.
-// It opens the system cert store, finds a valid cert matching the given CN and
-// issuer, and returns it along with a crypto.Signer for the private key.
+// It wraps the higher-level helper for callers who prefer a local function.
 func getCertificate(cn, issuer string) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-	return func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-		store, err := certstore.Open()
-		if err != nil {
-			return nil, fmt.Errorf("opening cert store: %w", err)
-		}
-		defer store.Close()
-
-		idents, err := store.Identities()
-		if err != nil {
-			return nil, fmt.Errorf("listing identities: %w", err)
-		}
-
-		for _, ident := range idents {
-			defer ident.Close()
-
-			cert, err := ident.Certificate()
-			if err != nil {
-				continue
-			}
-			if cert.Subject.CommonName != cn {
-				continue
-			}
-			if time.Now().After(cert.NotAfter) {
-				continue // expired
-			}
-			if cert.Issuer.CommonName != issuer {
-				continue
-			}
-
-			signer, err := ident.Signer()
-			if err != nil {
-				return nil, fmt.Errorf("getting signer: %w", err)
-			}
-
-			return &tls.Certificate{
-				Certificate: [][]byte{cert.Raw},
-				PrivateKey:  signer,
-			}, nil
-		}
-
-		return nil, fmt.Errorf("no valid certificate found for CN=%s, Issuer=%s", cn, issuer)
-	}
+	return certstore.GetClientCertificateFunc(nil, certstore.SelectOptions{
+		SubjectCN:            cn,
+		IssuerCN:             issuer,
+		RequireClientAuthEKU: true,
+	})
 }
 
 // Example_listCertificates shows how to enumerate all identities in the store.

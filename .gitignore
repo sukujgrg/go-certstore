@@ -8,3 +8,8 @@
 !go.mod
 !go.sum
 !*.go
+!docs/
+!docs/*.md
+!examples/
+!examples/*/
+!examples/*/*.go

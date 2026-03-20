@@ -42,17 +42,19 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
 	"math/big"
+	"runtime"
 	"unsafe"
 )
 
-// Open opens the Windows "MY" certificate store for the current user.
-func Open() (Store, error) {
+// openNativeStore opens the Windows "MY" certificate store for the current user.
+func openNativeStore() (Store, error) {
 	storeName := C.CString("MY")
 	defer C.free(unsafe.Pointer(storeName))
 
@@ -132,6 +134,50 @@ type winIdentity struct {
 	cert     *x509.Certificate
 }
 
+func (id *winIdentity) Label() string {
+	cert, err := id.Certificate()
+	if err != nil {
+		return ""
+	}
+	return identityLabelFromCert(cert)
+}
+
+func (id *winIdentity) Backend() Backend {
+	return BackendWindows
+}
+
+func (id *winIdentity) KeyType() string {
+	cert, err := id.Certificate()
+	if err != nil {
+		return ""
+	}
+	return identityKeyTypeFromCert(cert)
+}
+
+func (id *winIdentity) IsHardwareBacked() bool {
+	return false
+}
+
+func (id *winIdentity) RequiresLogin() bool {
+	return false
+}
+
+func (id *winIdentity) HardwareBackedState() CapabilityState {
+	return CapabilityUnknown
+}
+
+func (id *winIdentity) LoginRequiredState() CapabilityState {
+	return CapabilityUnknown
+}
+
+func (id *winIdentity) URI() string {
+	cert, err := id.Certificate()
+	if err != nil {
+		return ""
+	}
+	return identityURIFromCert(BackendWindows, cert)
+}
+
 func (id *winIdentity) Certificate() (*x509.Certificate, error) {
 	if id.cert != nil {
 		return id.cert, nil
@@ -196,12 +242,16 @@ func (id *winIdentity) Signer() (crypto.Signer, error) {
 	}
 
 	isNCrypt := keySpec == C.CERT_NCRYPT_KEY_SPEC
-	return &winSigner{
+	signer := &winSigner{
 		pub:        cert.PublicKey,
 		keyHandle:  keyHandle,
 		isNCrypt:   isNCrypt,
 		callerFree: callerFree != 0,
-	}, nil
+	}
+	if signer.callerFree {
+		runtime.SetFinalizer(signer, (*winSigner).release)
+	}
+	return signer, nil
 }
 
 func (id *winIdentity) Close() {
@@ -222,11 +272,47 @@ type winSigner struct {
 	callerFree bool
 }
 
+func (s *winSigner) release() {
+	if !s.callerFree || s.keyHandle == 0 {
+		return
+	}
+	if s.isNCrypt {
+		C.NCryptFreeObject(C.NCRYPT_HANDLE(s.keyHandle))
+	} else {
+		C.CryptReleaseContext(C.HCRYPTPROV(s.keyHandle), 0)
+	}
+	s.keyHandle = 0
+}
+
+func (s *winSigner) Close() error {
+	runtime.SetFinalizer(s, nil)
+	s.release()
+	return nil
+}
+
 func (s *winSigner) Public() crypto.PublicKey {
 	return s.pub
 }
 
+func (s *winSigner) supportedSignatureAlgorithms() []tls.SignatureScheme {
+	if !s.isNCrypt {
+		if _, ok := s.pub.(*rsa.PublicKey); ok {
+			return []tls.SignatureScheme{
+				tls.PKCS1WithSHA256,
+				tls.PKCS1WithSHA384,
+				tls.PKCS1WithSHA512,
+				tls.PKCS1WithSHA1,
+			}
+		}
+		return nil
+	}
+	return supportedSignatureAlgorithmsForPublicKey(s.pub)
+}
+
 func (s *winSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if s.keyHandle == 0 {
+		return nil, ErrClosed
+	}
 	if s.isNCrypt {
 		return s.signNCrypt(digest, opts)
 	}
@@ -310,6 +396,13 @@ func (s *winSigner) signNCrypt(digest []byte, opts crypto.SignerOpts) ([]byte, e
 
 // signCryptoAPI signs using the legacy CryptoAPI.
 func (s *winSigner) signCryptoAPI(digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if _, isPSS := opts.(*rsa.PSSOptions); isPSS {
+		return nil, errors.New("CryptoAPI private keys do not support RSA-PSS signing")
+	}
+	if _, ok := s.pub.(*rsa.PublicKey); !ok {
+		return nil, fmt.Errorf("CryptoAPI private keys do not support %T", s.pub)
+	}
+
 	hash := opts.HashFunc()
 
 	algID, err := cryptoAPIAlgID(hash)

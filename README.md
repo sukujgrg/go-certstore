@@ -1,26 +1,33 @@
 # go-certstore
 
-A Go library for accessing macOS Keychain and Windows CertStore — enumerate client certificates and use them for mTLS authentication. No external dependencies.
+A Go library for accessing client certificate identities across native OS stores and token-backed backends.
+
+Currently supported:
+
+- macOS Keychain
+- Windows Cert Store
+- explicit-module PKCS#11 tokens
 
 ## Platform support
 
-| Platform | Backend | CGo required |
-|----------|---------|:------------:|
-| macOS    | Keychain (Security.framework) | Yes |
-| Windows  | CertStore (CNG / CryptoAPI)   | Yes |
-| Linux    | — (returns error)             | No  |
+| Platform | Backend | Status | CGo required |
+|----------|---------|--------|:------------:|
+| macOS    | Keychain (Security.framework) | Implemented | Yes |
+| Windows  | CertStore (CNG / CryptoAPI)   | Implemented | Yes |
+| Linux    | Native system store           | Not supported | No |
+| Any      | PKCS#11 (explicit module path) | Implemented | Yes |
+| Any      | NSS / p11-kit discovery       | Not implemented yet | TBD |
 
 ## Install
 
-```
+```sh
 go get github.com/sukujgrg/go-certstore@latest
 ```
 
-## API
+## Core API
 
 ```go
-// Open the system certificate store.
-func Open() (Store, error)
+func Open(opts ...Option) (Store, error)
 
 type Store interface {
     Identities() ([]Identity, error)
@@ -33,119 +40,97 @@ type Identity interface {
     Signer() (crypto.Signer, error)
     Close()
 }
-
-// FilterIdentities opens the store and returns identities matching the filter.
-func FilterIdentities(filter FilterFunc) ([]Identity, error)
-
-type FilterFunc func(*x509.Certificate) bool
 ```
 
-## Usage
+Important helpers:
 
-Use `getCertificate` as your `tls.Config.GetClientCertificate` callback. Filtering by CN, issuer, expiry, etc. is done by the caller — the library just enumerates what's in the store.
+- `FindIdentity` / `FindIdentities`
+- `FindTLSCertificate`
+- `GetClientCertificateFunc`
+- `CloseSigner`
+
+## Quick start
+
+Default backend for the current platform:
 
 ```go
-func getCertificate(cn, issuer string) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-    return func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-        store, err := certstore.Open()
-        if err != nil {
-            return nil, err
-        }
-        defer store.Close()
+store, err := certstore.Open()
+```
 
-        idents, err := store.Identities()
-        if err != nil {
-            return nil, err
-        }
+Explicit PKCS#11 backend:
 
-        for _, ident := range idents {
-            defer ident.Close()
+```go
+store, err := certstore.Open(
+    certstore.WithBackend(certstore.BackendPKCS11),
+    certstore.WithPKCS11Module("/path/to/pkcs11/module"),
+    certstore.WithPKCS11TokenLabel("YubiKey PIV"),
+    certstore.WithPKCS11PINPrompt(func(info certstore.PromptInfo) (string, error) {
+        return os.Getenv("PKCS11_PIN"), nil
+    }),
+)
+```
 
-            cert, err := ident.Certificate()
-            if err != nil {
-                continue
-            }
-            if cert.Subject.CommonName != cn {
-                continue
-            }
-            if time.Now().After(cert.NotAfter) {
-                continue
-            }
-            if cert.Issuer.CommonName != issuer {
-                continue
-            }
+TLS client certificate helper:
 
-            signer, err := ident.Signer()
-            if err != nil {
-                return nil, err
-            }
-            return &tls.Certificate{
-                Certificate: [][]byte{cert.Raw},
-                PrivateKey:  signer,
-            }, nil
-        }
-        return nil, fmt.Errorf("no valid certificate found for CN=%s, Issuer=%s", cn, issuer)
-    }
+```go
+tlsConfig := &tls.Config{
+    GetClientCertificate: certstore.GetClientCertificateFunc(nil, certstore.SelectOptions{
+        SubjectCN:            "myhost.example.com",
+        IssuerCN:             "My Issuing CA",
+        RequireClientAuthEKU: true,
+    }),
 }
 ```
 
+## Docs
+
+- [PKCS#11 Usage](/Users/suku/github/sukujgrg/go-certstore/docs/pkcs11.md)
+- [Examples](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md)
+
+The PKCS#11 guide includes:
+
+- YubiKey / OpenSC usage
+- application-provided PIN callback
+- explicit signer cleanup
+- SoftHSM installation
+- how to create a SoftHSM config and token
+- how to import PKCS#8 keys and certificates
+- TLS helper usage with tokens
+
 ## Runnable examples
 
-The `_examples/` directory contains standalone programs that demonstrate the library.
+Runnable programs now live under `examples/`.
 
-### List certificates
+- [examples/list-identities](/Users/suku/github/sukujgrg/go-certstore/examples/list-identities/main.go)
+- [examples/tls-client](/Users/suku/github/sukujgrg/go-certstore/examples/tls-client/main.go)
 
-```sh
-cd _examples/list
-
-# list all certificates
-go run .
-
-# filter by subject CN (substring match)
-go run . -cn myhost
-
-# filter by issuer CN, only valid (unexpired), and verify private key access
-go run . -issuer "My CA" -valid -check-key
-```
-
-### mTLS check
-
-Check if a specific mTLS client certificate is available and usable:
+Run them with:
 
 ```sh
-cd _examples/mtls-check
-
-go run . -cn myhost.example.com -issuer "My Issuing CA"
+go run ./examples/list-identities
+go run ./examples/tls-client
 ```
 
-Example output:
-
-```
-Looking for: CN=myhost.example.com, Issuer=My Issuing CA
-
-Subject:  CN=myhost.example.com
-Issuer:   CN=My Issuing CA
-Serial:   1a2b3c4d
-Validity: 2025-01-15 to 2026-01-15
-Status:   VALID
-Expires:  301 days remaining
-Key:      OK
-
-mTLS is ready.
-```
+See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for PKCS#11 flag examples.
 
 ## Signing support
 
-| Algorithm | macOS | Windows (CNG) | Windows (CryptoAPI) |
-|-----------|:-----:|:--------------:|:-------------------:|
-| RSA PKCS#1 v1.5 (SHA1/256/384/512) | Yes | Yes | Yes |
-| RSA-PSS (SHA256/384/512) | Yes | Yes | — |
-| ECDSA (SHA1/256/384/512) | Yes | Yes | — |
+| Algorithm | macOS | Windows (CNG) | Windows (CryptoAPI) | PKCS#11 |
+|-----------|:-----:|:--------------:|:-------------------:|:-------:|
+| RSA PKCS#1 v1.5 (SHA1/256/384/512) | Yes | Yes | Yes | Yes |
+| RSA-PSS (SHA256/384/512) | Yes | Yes | — | Yes |
+| ECDSA (SHA1/256/384/512) | Yes | Yes | — | Yes |
+
+## Notes
+
+- PKCS#11 support currently requires an explicit module path.
+- NSS and `p11-kit` discovery are intentionally not implemented yet.
+- PKCS#11 identities now expose richer metadata through `PKCS11IdentityInfo`.
+- Native-handle-backed signers can be cleaned up explicitly with `CloseSigner`.
 
 ## Credits
 
 - macOS implementation inspired by [getvictor/mtls](https://github.com/getvictor/mtls)
-- Interface design and Windows implementation based on [smimesign/certstore](https://github.com/github/smimesign)
 
 ## License
 
