@@ -1,6 +1,6 @@
 # go-certstore
 
-A Go library for accessing the system certificate store for client certificate authentication (mTLS). It provides a read-only, interface-driven API for enumerating identities and signing with their private keys.
+A Go library for accessing macOS Keychain and Windows CertStore — enumerate client certificates and use them for mTLS authentication. No external dependencies.
 
 ## Platform support
 
