@@ -13,7 +13,7 @@ A Go library for accessing the system certificate store for client certificate a
 ## Install
 
 ```
-go get github.com/sukujgrg/go-certstore
+go get github.com/sukujgrg/go-certstore@latest
 ```
 
 ## API
