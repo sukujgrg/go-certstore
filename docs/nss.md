@@ -10,7 +10,7 @@ The library requires:
 
 - an NSS `softokn3` module path
 - an NSS profile/database directory
-- an application-provided PIN/password callback when the database requires one
+- an application-provided credential callback when the database requires one
 
 The library does not:
 

@@ -51,6 +51,48 @@ Important helpers:
 - `GetClientCertificateFunc`
 - `CloseSigner`
 
+## Scope
+
+`go-certstore` is a library for working with X.509 certificate identities that
+already exist in native stores or token/database backends.
+
+It is intended for:
+
+- enumerating certificate + private key identities
+- selecting identities for mTLS and related client-certificate flows
+- retrieving the leaf certificate or available X.509 chain
+- obtaining a `crypto.Signer` backed by the underlying native key handle, token, or database
+
+It is not intended for:
+
+- SSH keys or SSH certificates
+- generic key management or secret storage
+- creating a universal abstraction over every possible credential store
+- hiding backend-specific configuration that the application should choose explicitly
+
+## Convenience Boundary
+
+This package keeps the library/application boundary explicit.
+
+The library handles:
+
+- backend access
+- identity enumeration
+- identity selection helpers
+- signer construction
+- TLS client-certificate integration helpers
+
+The application is expected to handle:
+
+- how to discover modules, profiles, or tokens
+- which backend to use in a given environment
+- how to collect credentials or passwords from users
+- how to choose defaults and present UX
+- any environment-specific convenience behavior
+
+That is why backends such as PKCS#11 and NSS require explicit module/profile
+configuration instead of embedding discovery or prompting policy in the library.
+
 ## Backend Resolution
 
 `Open()` with no options uses the native backend for the current platform.
@@ -172,7 +214,7 @@ The NSS guide covers:
 
 - explicit `softokn3` module configuration
 - explicit NSS profile/database selection
-- application-provided PIN/password callbacks
+- application-provided credential callbacks
 - NSS-specific identity metadata
 - runnable example commands
 

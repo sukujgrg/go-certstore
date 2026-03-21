@@ -15,7 +15,7 @@ func main() {
 		module  = flag.String("module", "", "module path (PKCS#11 module or NSS softokn3)")
 		profile = flag.String("profile", "", "NSS profile/database directory")
 		token   = flag.String("token", "", "PKCS#11 token label")
-		pin     = flag.String("pin", "", "token or database PIN/password")
+		pin     = flag.String("pin", "", "token or database credential")
 		subject = flag.String("subject", "", "subject CN to match")
 		issuer  = flag.String("issuer", "", "issuer CN to match")
 		chain   = flag.Bool("chain", false, "export full certificate chain")

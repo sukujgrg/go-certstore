@@ -1,7 +1,25 @@
-// Package certstore provides access to the system certificate store for
-// client certificate authentication (mTLS). It exposes a read-only,
-// interface-driven API for enumerating identities and signing with their
-// private keys.
+// Package certstore provides access to X.509 certificate identities from
+// native stores and token/database backends. It exposes a read-only,
+// interface-driven API for enumerating identities, retrieving certificate
+// chains, and signing with their private keys.
+//
+// Scope:
+//   - X.509 certificate identities backed by native stores or token/database backends
+//   - certificate enumeration, selection, chain retrieval, and signing
+//   - TLS client-certificate integration helpers
+//
+// Non-goals:
+//   - SSH keys or SSH certificates
+//   - generic secret storage
+//   - profile, module, or token discovery heuristics
+//   - prompting UX, GUI flows, or application-specific convenience policy
+//
+// The library intentionally keeps the application boundary explicit. Callers
+// are expected to decide how to discover backends, select profiles or tokens,
+// collect credentials, and present UX around those choices.
+//
+// One major use case is TLS client-certificate authentication (mTLS), but the
+// package is not limited to TLS-specific workflows.
 //
 // Platform support:
 //   - macOS: Keychain via Security.framework (CGo required)
@@ -51,7 +69,7 @@ func FilterIdentities(filter FilterFunc) ([]Identity, error) {
 	return matched, nil
 }
 
-// Store represents an open handle to the system certificate store.
+// Store represents an open handle to a certificate-identity backend.
 type Store interface {
 	// Identities returns all identities (certificate + private key pairs)
 	// available in the store.
