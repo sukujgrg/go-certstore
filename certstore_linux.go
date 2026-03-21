@@ -2,10 +2,10 @@
 
 package certstore
 
-import "errors"
+import "fmt"
 
 // openNativeStore returns an error on Linux because there is no standard
 // system certificate store for client identities.
 func openNativeStore() (Store, error) {
-	return nil, errors.New("certstore is not supported on linux")
+	return nil, fmt.Errorf("%w: native linux client certificate store is not supported", ErrUnsupportedBackend)
 }

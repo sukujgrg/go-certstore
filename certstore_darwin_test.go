@@ -37,3 +37,9 @@ func TestMacIdentityImplementsIdentityInfo(t *testing.T) {
 		t.Fatalf("URI() = %q", got)
 	}
 }
+
+func TestCurrentNativeBackendDarwin(t *testing.T) {
+	if got := currentNativeBackend(); got != BackendDarwin {
+		t.Fatalf("currentNativeBackend() = %q, want %q", got, BackendDarwin)
+	}
+}

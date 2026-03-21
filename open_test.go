@@ -43,3 +43,33 @@ func TestHasPKCS11Config(t *testing.T) {
 		t.Fatal("expected slot selection to count as pkcs11 config")
 	}
 }
+
+func TestValidateOptionsAdditionalCases(t *testing.T) {
+	t.Run("unknown backend", func(t *testing.T) {
+		err := validateOptions(Options{Backend: Backend("bogus")})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("nss with non-nss backend", func(t *testing.T) {
+		err := validateOptions(Options{
+			Backend:       BackendPKCS11,
+			PKCS11Module:  "/tmp/module.so",
+			NSSProfileDir: "/tmp/nss",
+		})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("p11kit unsupported", func(t *testing.T) {
+		err := validateOptions(Options{
+			Backend:   BackendPKCS11,
+			UseP11Kit: true,
+		})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
