@@ -18,6 +18,60 @@ A Go library for accessing client certificate identities across native OS stores
 go get github.com/sukujgrg/go-certstore@latest
 ```
 
+## Quick start
+
+Default backend for the current platform:
+
+```go
+store, err := certstore.Open()
+```
+
+Explicit PKCS#11 backend:
+
+```go
+store, err := certstore.Open(
+    certstore.WithBackend(certstore.BackendPKCS11),
+    certstore.WithPKCS11Module("/path/to/pkcs11/module"),
+    certstore.WithPKCS11TokenLabel("YubiKey PIV"),
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
+        return os.Getenv("PKCS11_PIN"), nil
+    }),
+)
+```
+
+Explicit NSS backend:
+
+```go
+store, err := certstore.Open(
+    certstore.WithBackend(certstore.BackendNSS),
+    certstore.WithNSSModule("/path/to/libsoftokn3.so"),
+    certstore.WithNSSProfileDir("/path/to/nssdb"),
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
+        return os.Getenv("CERTSTORE_PIN"), nil
+    }),
+)
+```
+
+TLS client certificate helper:
+
+```go
+tlsConfig := &tls.Config{
+    GetClientCertificate: certstore.GetClientCertificateFunc(nil, certstore.SelectOptions{
+        SubjectCN:            "myhost.example.com",
+        IssuerCN:             "My Issuing CA",
+        RequireClientAuthEKU: true,
+    }),
+}
+```
+
+## Signing support
+
+| Algorithm | macOS | Windows (CNG) | Windows (CryptoAPI) | PKCS#11 | NSS |
+|-----------|:-----:|:--------------:|:-------------------:|:-------:|:---:|
+| RSA PKCS#1 v1.5 (SHA1/256/384/512) | Yes | Yes | Yes | Yes | Yes |
+| RSA-PSS (SHA256/384/512) | Yes | Yes | — | Yes | Yes |
+| ECDSA (SHA1/256/384/512) | Yes | Yes | — | Yes | Yes |
+
 ## Core API
 
 ```go
@@ -152,52 +206,6 @@ The most useful exported errors to branch on are:
 - `ErrUnsupportedBackend` when a backend is unavailable on the current platform or not implemented
 - `ErrClosed` when a signer or resource is used after explicit cleanup
 
-## Quick start
-
-Default backend for the current platform:
-
-```go
-store, err := certstore.Open()
-```
-
-Explicit PKCS#11 backend:
-
-```go
-store, err := certstore.Open(
-    certstore.WithBackend(certstore.BackendPKCS11),
-    certstore.WithPKCS11Module("/path/to/pkcs11/module"),
-    certstore.WithPKCS11TokenLabel("YubiKey PIV"),
-    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-        return os.Getenv("PKCS11_PIN"), nil
-    }),
-)
-```
-
-Explicit NSS backend:
-
-```go
-store, err := certstore.Open(
-    certstore.WithBackend(certstore.BackendNSS),
-    certstore.WithNSSModule("/path/to/libsoftokn3.so"),
-    certstore.WithNSSProfileDir("/path/to/nssdb"),
-    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-        return os.Getenv("CERTSTORE_PIN"), nil
-    }),
-)
-```
-
-TLS client certificate helper:
-
-```go
-tlsConfig := &tls.Config{
-    GetClientCertificate: certstore.GetClientCertificateFunc(nil, certstore.SelectOptions{
-        SubjectCN:            "myhost.example.com",
-        IssuerCN:             "My Issuing CA",
-        RequireClientAuthEKU: true,
-    }),
-}
-```
-
 ## Docs
 
 - [PKCS#11 Usage](/Users/suku/github/sukujgrg/go-certstore/docs/pkcs11.md)
@@ -206,27 +214,9 @@ tlsConfig := &tls.Config{
 
 ## Runnable examples
 
-Runnable programs now live under `examples/`.
-
-- [examples/list-identities](/Users/suku/github/sukujgrg/go-certstore/examples/list-identities/main.go)
-- [examples/tls-client](/Users/suku/github/sukujgrg/go-certstore/examples/tls-client/main.go)
-- [examples/export-cert](/Users/suku/github/sukujgrg/go-certstore/examples/export-cert/main.go)
+Runnable programs are available under `examples/`.
 
 See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for runnable commands and PKCS#11/NSS flag usage.
-
-## Signing support
-
-| Algorithm | macOS | Windows (CNG) | Windows (CryptoAPI) | PKCS#11 | NSS |
-|-----------|:-----:|:--------------:|:-------------------:|:-------:|:---:|
-| RSA PKCS#1 v1.5 (SHA1/256/384/512) | Yes | Yes | Yes | Yes | Yes |
-| RSA-PSS (SHA256/384/512) | Yes | Yes | — | Yes | Yes |
-| ECDSA (SHA1/256/384/512) | Yes | Yes | — | Yes | Yes |
-
-## Notes
-
-- PKCS#11 identities now expose richer metadata through `PKCS11IdentityInfo`.
-- NSS identities now expose richer metadata through `NSSIdentityInfo`.
-- Native-handle-backed signers can be cleaned up explicitly with `CloseSigner`.
 
 ## Credits
 
