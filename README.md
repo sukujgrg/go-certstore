@@ -108,7 +108,7 @@ Run them with:
 
 ```sh
 go run ./examples/list-identities
-go run ./examples/tls-client
+go run ./examples/tls-client -subject "client.example.com"
 ```
 
 See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for PKCS#11 flag examples.
