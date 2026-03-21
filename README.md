@@ -18,7 +18,6 @@ Currently supported:
 | Linux    | Native system store           | Not supported | No |
 | Any      | PKCS#11 (explicit module path) | Implemented | Yes |
 | Any      | NSS (explicit softokn3 module path + profile dir) | Implemented | Yes |
-| Any      | p11-kit discovery             | Not implemented yet | TBD |
 
 ## Install
 
@@ -102,7 +101,6 @@ configuration instead of embedding discovery or prompting policy in the library.
 - macOS and Windows use the native backend by default
 - PKCS#11 is selected when PKCS#11 options are supplied
 - NSS is selected when NSS options are supplied
-- `p11-kit` discovery is currently unsupported and returns `ErrUnsupportedBackend`
 
 ## Selection Semantics
 
@@ -249,7 +247,6 @@ See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md
 
 - PKCS#11 support currently requires an explicit module path.
 - NSS support currently requires an explicit `softokn3` module path and profile/database directory.
-- `p11-kit` discovery is intentionally not implemented yet.
 - PKCS#11 identities now expose richer metadata through `PKCS11IdentityInfo`.
 - NSS identities now expose richer metadata through `NSSIdentityInfo`.
 - Native-handle-backed signers can be cleaned up explicitly with `CloseSigner`.
