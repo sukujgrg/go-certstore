@@ -9,7 +9,8 @@ func TestOptionSetters(t *testing.T) {
 	WithPKCS11Module("/tmp/module.so")(&opts)
 	WithPKCS11TokenLabel("token-label")(&opts)
 	WithPKCS11Slot(7)(&opts)
-	WithPKCS11PINPrompt(func(PromptInfo) (string, error) { return "1234", nil })(&opts)
+	WithCredentialPrompt(func(PromptInfo) (string, error) { return "5678", nil })(&opts)
+	WithNSSModule("/tmp/libsoftokn3.so")(&opts)
 	WithNSSProfileDir("/tmp/nss-profile")(&opts)
 	WithP11Kit(true)(&opts)
 
@@ -25,8 +26,11 @@ func TestOptionSetters(t *testing.T) {
 	if opts.PKCS11Slot == nil || *opts.PKCS11Slot != 7 {
 		t.Fatalf("PKCS11Slot = %v", opts.PKCS11Slot)
 	}
-	if opts.PKCS11PINPrompt == nil {
-		t.Fatal("PKCS11PINPrompt is nil")
+	if opts.CredentialPrompt == nil {
+		t.Fatal("CredentialPrompt is nil")
+	}
+	if opts.NSSModule != "/tmp/libsoftokn3.so" {
+		t.Fatalf("NSSModule = %q", opts.NSSModule)
 	}
 	if opts.NSSProfileDir != "/tmp/nss-profile" {
 		t.Fatalf("NSSProfileDir = %q", opts.NSSProfileDir)

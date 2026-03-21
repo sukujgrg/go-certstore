@@ -56,6 +56,7 @@ func TestValidateOptionsAdditionalCases(t *testing.T) {
 		err := validateOptions(Options{
 			Backend:       BackendPKCS11,
 			PKCS11Module:  "/tmp/module.so",
+			NSSModule:     "/tmp/libsoftokn3.so",
 			NSSProfileDir: "/tmp/nss",
 		})
 		if err == nil {
@@ -72,4 +73,46 @@ func TestValidateOptionsAdditionalCases(t *testing.T) {
 			t.Fatal("expected error")
 		}
 	})
+
+	t.Run("nss backend requires module", func(t *testing.T) {
+		err := validateOptions(Options{
+			Backend:       BackendNSS,
+			NSSProfileDir: "/tmp/nss",
+		})
+		if err == nil || err.Error() != "nss module path is required" {
+			t.Fatalf("expected missing module error, got %v", err)
+		}
+	})
+
+	t.Run("nss backend requires profile", func(t *testing.T) {
+		err := validateOptions(Options{
+			Backend:   BackendNSS,
+			NSSModule: "/tmp/libsoftokn3.so",
+		})
+		if err == nil || err.Error() != "nss profile directory is required" {
+			t.Fatalf("expected missing profile error, got %v", err)
+		}
+	})
+
+	t.Run("auto rejects mixed nss and pkcs11 config", func(t *testing.T) {
+		err := validateOptions(Options{
+			Backend:       BackendAuto,
+			PKCS11Module:  "/tmp/module.so",
+			NSSModule:     "/tmp/libsoftokn3.so",
+			NSSProfileDir: "/tmp/nss",
+		})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+	})
+}
+
+func TestHasNSSConfig(t *testing.T) {
+	if hasNSSConfig(Options{}) {
+		t.Fatal("expected empty options to report no nss config")
+	}
+
+	if !hasNSSConfig(Options{NSSProfileDir: "/tmp/nss"}) {
+		t.Fatal("expected nss profile to count as nss config")
+	}
 }

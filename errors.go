@@ -18,11 +18,11 @@ var (
 	// login step before the requested operation can proceed.
 	ErrLoginRequired = errors.New("login required")
 
-	// ErrPINRequired is returned when a token backend requires a PIN.
-	ErrPINRequired = errors.New("PIN required")
+	// ErrCredentialRequired is returned when a backend requires credentials.
+	ErrCredentialRequired = errors.New("credential required")
 
-	// ErrIncorrectPIN is returned when a provided PIN is rejected.
-	ErrIncorrectPIN = errors.New("incorrect PIN")
+	// ErrIncorrectCredential is returned when provided credentials are rejected.
+	ErrIncorrectCredential = errors.New("incorrect credential")
 
 	// ErrMechanismUnsupported is returned when a backend cannot perform a
 	// requested signing or key operation.

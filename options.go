@@ -16,7 +16,8 @@ const (
 	// BackendPKCS11 selects a PKCS#11 token/module backend.
 	BackendPKCS11 Backend = "pkcs11"
 
-	// BackendNSS selects an NSS profile/database backend.
+	// BackendNSS selects an NSS profile/database backend via an explicit
+	// softokn3 module path and profile directory.
 	BackendNSS Backend = "nss"
 )
 
@@ -47,11 +48,15 @@ type Options struct {
 	PKCS11TokenLabel string
 	// PKCS11Slot selects a PKCS#11 token by numeric slot.
 	PKCS11Slot *uint
-	// PKCS11PINPrompt supplies credentials when a token login is required.
-	PKCS11PINPrompt func(PromptInfo) (string, error)
+	// CredentialPrompt supplies credentials when a token or database login is
+	// required.
+	CredentialPrompt func(PromptInfo) (string, error)
 
-	// NSSProfileDir selects an NSS profile/database directory. NSS support is
-	// not implemented yet.
+	// NSSModule is the NSS softokn3 PKCS#11 module path to load when using the
+	// NSS backend.
+	NSSModule string
+	// NSSProfileDir selects an NSS profile/database directory. The library uses
+	// this profile explicitly and does not try to discover browser profiles.
 	NSSProfileDir string
 
 	// UseP11Kit requests p11-kit-based PKCS#11 module discovery. This is not
@@ -94,16 +99,24 @@ func WithPKCS11Slot(slot uint) Option {
 	}
 }
 
-// WithPKCS11PINPrompt configures the callback used when a PKCS#11 login is
-// required. The callback is invoked lazily, only when the token requires
-// credentials for enumeration or signing.
-func WithPKCS11PINPrompt(prompt func(PromptInfo) (string, error)) Option {
+// WithCredentialPrompt configures the callback used when a token-backed or
+// database-backed backend such as PKCS#11 or NSS requires credentials.
+// The callback is invoked lazily, only when the backend requires credentials
+// for enumeration or signing.
+func WithCredentialPrompt(prompt func(PromptInfo) (string, error)) Option {
 	return func(opts *Options) {
-		opts.PKCS11PINPrompt = prompt
+		opts.CredentialPrompt = prompt
 	}
 }
 
-// WithNSSProfileDir configures the NSS profile directory.
+// WithNSSModule configures the NSS softokn3 PKCS#11 module path.
+func WithNSSModule(path string) Option {
+	return func(opts *Options) {
+		opts.NSSModule = path
+	}
+}
+
+// WithNSSProfileDir configures the NSS profile/database directory.
 func WithNSSProfileDir(dir string) Option {
 	return func(opts *Options) {
 		opts.NSSProfileDir = dir

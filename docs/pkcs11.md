@@ -36,7 +36,7 @@ store, err := certstore.Open(
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module("/usr/local/lib/opensc-pkcs11.so"),
     certstore.WithPKCS11TokenLabel("YubiKey PIV"),
-    certstore.WithPKCS11PINPrompt(func(info certstore.PromptInfo) (string, error) {
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
         return os.Getenv("YUBIKEY_PIN"), nil
     }),
 )
@@ -58,7 +58,7 @@ defer ident.Close()
 ```
 
 The library intentionally leaves PIN collection to the application. Use
-`WithPKCS11PINPrompt(...)` to plug in whatever is appropriate for your app:
+`WithCredentialPrompt(...)` to plug in whatever is appropriate for your app:
 
 - GUI prompt
 - terminal prompt
@@ -154,7 +154,7 @@ uses:
 - user PIN: `123456`
 
 The user PIN is the PIN your Go code will supply through
-`WithPKCS11PINPrompt(...)`.
+`WithCredentialPrompt(...)`.
 
 ```sh
 "$SOFTHSM2_UTIL" --module "$SOFTHSM2_MODULE" \
@@ -236,7 +236,7 @@ store, err := certstore.Open(
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module(os.Getenv("SOFTHSM2_MODULE")),
     certstore.WithPKCS11TokenLabel("go-certstore-test"),
-    certstore.WithPKCS11PINPrompt(func(info certstore.PromptInfo) (string, error) {
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
         return os.Getenv("PKCS11_PIN"), nil
     }),
 )
@@ -261,7 +261,7 @@ tlsConfig := &tls.Config{
             certstore.WithBackend(certstore.BackendPKCS11),
             certstore.WithPKCS11Module(os.Getenv("SOFTHSM2_MODULE")),
             certstore.WithPKCS11TokenLabel("go-certstore-test"),
-            certstore.WithPKCS11PINPrompt(func(info certstore.PromptInfo) (string, error) {
+            certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
                 return os.Getenv("PKCS11_PIN"), nil
             }),
         },

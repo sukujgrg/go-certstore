@@ -12,7 +12,8 @@ import (
 // When BackendAuto is selected explicitly or implicitly:
 //   - native macOS and Windows backends are used by default
 //   - PKCS#11 is selected instead when PKCS#11 options are supplied
-//   - NSS and p11-kit discovery currently return ErrUnsupportedBackend
+//   - NSS is selected instead when an NSS module path and profile are supplied
+//   - p11-kit discovery currently returns ErrUnsupportedBackend
 //
 // Use WithBackend to force a specific backend.
 func Open(opts ...Option) (Store, error) {
@@ -39,17 +40,23 @@ func Open(opts ...Option) (Store, error) {
 			}
 			return openPKCS11Store(cfg)
 		}
+		if hasNSSConfig(cfg) {
+			if cfg.NSSModule == "" {
+				return nil, fmt.Errorf("nss module path is required")
+			}
+			if cfg.NSSProfileDir == "" {
+				return nil, fmt.Errorf("nss profile directory is required")
+			}
+			return openNSSStore(cfg)
+		}
 		if cfg.UseP11Kit {
 			return nil, fmt.Errorf("%w: p11-kit discovery is not implemented yet", ErrUnsupportedBackend)
-		}
-		if cfg.NSSProfileDir != "" {
-			return nil, fmt.Errorf("%w: backend %q is not implemented yet", ErrUnsupportedBackend, BackendNSS)
 		}
 		return openNativeStore()
 	case BackendPKCS11:
 		return openPKCS11Store(cfg)
 	case BackendNSS:
-		return nil, fmt.Errorf("%w: backend %q is not implemented yet", ErrUnsupportedBackend, BackendNSS)
+		return openNSSStore(cfg)
 	}
 
 	if native := currentNativeBackend(); native != "" && cfg.Backend == native {
@@ -72,19 +79,25 @@ func validateOptions(cfg Options) error {
 		}
 	}
 
-	if cfg.NSSProfileDir != "" && cfg.Backend != BackendAuto && cfg.Backend != BackendNSS {
+	if hasNSSConfig(cfg) && cfg.Backend != BackendAuto && cfg.Backend != BackendNSS {
 		return fmt.Errorf("%w: NSS options require backend %q or %q", ErrUnsupportedBackend, BackendAuto, BackendNSS)
 	}
 
 	if cfg.Backend == BackendAuto {
+		if hasNSSConfig(cfg) && hasPKCS11Config(cfg) {
+			return fmt.Errorf("%w: PKCS#11 and NSS options cannot be combined under backend %q", ErrUnsupportedBackend, BackendAuto)
+		}
 		if cfg.UseP11Kit {
 			return fmt.Errorf("%w: p11-kit discovery is not implemented yet", ErrUnsupportedBackend)
 		}
 		if hasPKCS11Config(cfg) && cfg.PKCS11Module == "" {
 			return fmt.Errorf("pkcs11 module path is required")
 		}
-		if cfg.NSSProfileDir != "" {
-			return fmt.Errorf("%w: backend %q is not implemented yet", ErrUnsupportedBackend, BackendNSS)
+		if hasNSSConfig(cfg) && cfg.NSSModule == "" {
+			return fmt.Errorf("nss module path is required")
+		}
+		if hasNSSConfig(cfg) && cfg.NSSProfileDir == "" {
+			return fmt.Errorf("nss profile directory is required")
 		}
 	}
 
@@ -98,11 +111,23 @@ func validateOptions(cfg Options) error {
 	}
 
 	if cfg.Backend == BackendNSS {
-		return fmt.Errorf("%w: backend %q is not implemented yet", ErrUnsupportedBackend, BackendNSS)
+		if hasPKCS11Config(cfg) {
+			return fmt.Errorf("%w: PKCS#11 options require backend %q or %q", ErrUnsupportedBackend, BackendAuto, BackendPKCS11)
+		}
+		if cfg.NSSModule == "" {
+			return fmt.Errorf("nss module path is required")
+		}
+		if cfg.NSSProfileDir == "" {
+			return fmt.Errorf("nss profile directory is required")
+		}
 	}
 	return nil
 }
 
 func hasPKCS11Config(cfg Options) bool {
-	return cfg.PKCS11Module != "" || cfg.PKCS11TokenLabel != "" || cfg.PKCS11PINPrompt != nil || cfg.PKCS11Slot != nil
+	return cfg.PKCS11Module != "" || cfg.PKCS11TokenLabel != "" || cfg.PKCS11Slot != nil
+}
+
+func hasNSSConfig(cfg Options) bool {
+	return cfg.NSSModule != "" || cfg.NSSProfileDir != ""
 }

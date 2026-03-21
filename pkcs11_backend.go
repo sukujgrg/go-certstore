@@ -32,6 +32,15 @@ func openPKCS11Store(cfg Options) (Store, error) {
 	return &pkcs11Store{module: module}, nil
 }
 
+type tokenModuleConfig struct {
+	backend    Backend
+	modulePath string
+	prompt     func(PromptInfo) (string, error)
+	initOpts   []pkcs11.InitializeOption
+	cleanup    func()
+	selectSlot func(*pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error)
+}
+
 type pkcs11Store struct {
 	module *pkcs11Module
 	once   sync.Once
@@ -150,44 +159,68 @@ func (s *pkcs11Store) Close() {
 type pkcs11Module struct {
 	mu        sync.Mutex
 	ctx       *pkcs11.Ctx
+	backend   Backend
 	module    string
 	slotID    uint
 	slotInfo  pkcs11.SlotInfo
 	tokenInfo pkcs11.TokenInfo
 	prompt    func(PromptInfo) (string, error)
+	cleanup   func()
 	refs      int
 	closed    bool
 }
 
 func newPKCS11Module(cfg Options) (*pkcs11Module, error) {
-	ctx := pkcs11.New(cfg.PKCS11Module)
+	return newTokenModule(tokenModuleConfig{
+		backend:    BackendPKCS11,
+		modulePath: cfg.PKCS11Module,
+		prompt:     cfg.CredentialPrompt,
+		selectSlot: func(ctx *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+			return selectPKCS11Slot(ctx, cfg.PKCS11Slot, cfg.PKCS11TokenLabel)
+		},
+	})
+}
+
+func newTokenModule(cfg tokenModuleConfig) (*pkcs11Module, error) {
+	ctx := pkcs11.New(cfg.modulePath)
 	if ctx == nil {
-		return nil, fmt.Errorf("loading pkcs11 module %q failed", cfg.PKCS11Module)
+		if cfg.cleanup != nil {
+			cfg.cleanup()
+		}
+		return nil, fmt.Errorf("loading pkcs11 module %q failed", cfg.modulePath)
 	}
 
 	cleanup := func() {
 		_ = ctx.Finalize()
 		ctx.Destroy()
+		if cfg.cleanup != nil {
+			cfg.cleanup()
+		}
 	}
 
-	if err := ctx.Initialize(); err != nil {
+	if err := ctx.Initialize(cfg.initOpts...); err != nil {
 		ctx.Destroy()
-		return nil, fmt.Errorf("initializing pkcs11 module %q: %w", cfg.PKCS11Module, err)
+		if cfg.cleanup != nil {
+			cfg.cleanup()
+		}
+		return nil, fmt.Errorf("initializing %s module %q: %w", cfg.backend, cfg.modulePath, err)
 	}
 
-	slotID, slotInfo, tokenInfo, err := selectPKCS11Slot(ctx, cfg)
+	slotID, slotInfo, tokenInfo, err := cfg.selectSlot(ctx)
 	if err != nil {
 		cleanup()
 		return nil, err
 	}
 
 	return &pkcs11Module{
+		backend:   cfg.backend,
 		ctx:       ctx,
-		module:    cfg.PKCS11Module,
+		module:    cfg.modulePath,
 		slotID:    slotID,
 		slotInfo:  slotInfo,
 		tokenInfo: tokenInfo,
-		prompt:    cfg.PKCS11PINPrompt,
+		prompt:    cfg.prompt,
+		cleanup:   cfg.cleanup,
 		refs:      1,
 	}, nil
 }
@@ -215,6 +248,10 @@ func (m *pkcs11Module) release() {
 	m.closed = true
 	_ = m.ctx.Finalize()
 	m.ctx.Destroy()
+	if m.cleanup != nil {
+		m.cleanup()
+		m.cleanup = nil
+	}
 	m.ctx = nil
 }
 
@@ -243,14 +280,14 @@ func (m *pkcs11Module) login(session pkcs11.SessionHandle) error {
 		return nil
 	}
 	if m.prompt == nil {
-		return ErrPINRequired
+		return ErrCredentialRequired
 	}
 
 	pin, err := m.prompt(PromptInfo{
-		Backend:    BackendPKCS11,
+		Backend:    m.backend,
 		TokenLabel: strings.TrimSpace(m.tokenInfo.Label),
 		SlotID:     m.slotID,
-		Reason:     "pkcs11 login required",
+		Reason:     string(m.backend) + " login required",
 	})
 	if err != nil {
 		return err
@@ -263,9 +300,9 @@ func (m *pkcs11Module) login(session pkcs11.SessionHandle) error {
 	case isPKCS11Error(err, pkcs11.CKR_USER_ALREADY_LOGGED_IN):
 		return nil
 	case isPKCS11Error(err, pkcs11.CKR_PIN_INCORRECT), isPKCS11Error(err, pkcs11.CKR_PIN_INVALID):
-		return ErrIncorrectPIN
+		return ErrIncorrectCredential
 	case isPKCS11Error(err, pkcs11.CKR_PIN_LEN_RANGE), isPKCS11Error(err, pkcs11.CKR_PIN_EXPIRED), isPKCS11Error(err, pkcs11.CKR_PIN_LOCKED):
-		return fmt.Errorf("%w: %v", ErrPINRequired, err)
+		return fmt.Errorf("%w: %v", ErrCredentialRequired, err)
 	default:
 		return fmt.Errorf("%w: %v", ErrLoginRequired, err)
 	}
@@ -603,7 +640,7 @@ func findPKCS11Objects(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, template [
 	}
 }
 
-func selectPKCS11Slot(ctx *pkcs11.Ctx, cfg Options) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+func selectPKCS11Slot(ctx *pkcs11.Ctx, slotSelection *uint, tokenLabel string) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
 	slots, err := ctx.GetSlotList(true)
 	if err != nil {
 		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("listing pkcs11 slots: %w", err)
@@ -612,19 +649,19 @@ func selectPKCS11Slot(ctx *pkcs11.Ctx, cfg Options) (uint, pkcs11.SlotInfo, pkcs
 		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, ErrIdentityNotFound
 	}
 
-	if cfg.PKCS11Slot != nil {
-		slotInfo, err := ctx.GetSlotInfo(*cfg.PKCS11Slot)
+	if slotSelection != nil {
+		slotInfo, err := ctx.GetSlotInfo(*slotSelection)
 		if err != nil {
-			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("reading pkcs11 slot %d: %w", *cfg.PKCS11Slot, err)
+			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("reading pkcs11 slot %d: %w", *slotSelection, err)
 		}
-		tokenInfo, err := ctx.GetTokenInfo(*cfg.PKCS11Slot)
+		tokenInfo, err := ctx.GetTokenInfo(*slotSelection)
 		if err != nil {
-			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("reading pkcs11 token %d: %w", *cfg.PKCS11Slot, err)
+			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("reading pkcs11 token %d: %w", *slotSelection, err)
 		}
-		if cfg.PKCS11TokenLabel != "" && strings.TrimSpace(tokenInfo.Label) != cfg.PKCS11TokenLabel {
-			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("pkcs11 slot %d token label %q does not match requested %q", *cfg.PKCS11Slot, strings.TrimSpace(tokenInfo.Label), cfg.PKCS11TokenLabel)
+		if tokenLabel != "" && strings.TrimSpace(tokenInfo.Label) != tokenLabel {
+			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("pkcs11 slot %d token label %q does not match requested %q", *slotSelection, strings.TrimSpace(tokenInfo.Label), tokenLabel)
 		}
-		return *cfg.PKCS11Slot, slotInfo, tokenInfo, nil
+		return *slotSelection, slotInfo, tokenInfo, nil
 	}
 
 	for _, slotID := range slots {
@@ -636,14 +673,14 @@ func selectPKCS11Slot(ctx *pkcs11.Ctx, cfg Options) (uint, pkcs11.SlotInfo, pkcs
 		if err != nil {
 			continue
 		}
-		if cfg.PKCS11TokenLabel != "" && strings.TrimSpace(tokenInfo.Label) != cfg.PKCS11TokenLabel {
+		if tokenLabel != "" && strings.TrimSpace(tokenInfo.Label) != tokenLabel {
 			continue
 		}
 		return slotID, slotInfo, tokenInfo, nil
 	}
 
-	if cfg.PKCS11TokenLabel != "" {
-		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("%w: token %q", ErrIdentityNotFound, cfg.PKCS11TokenLabel)
+	if tokenLabel != "" {
+		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("%w: token %q", ErrIdentityNotFound, tokenLabel)
 	}
 	return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("%w: no usable pkcs11 slot found", ErrIdentityNotFound)
 }

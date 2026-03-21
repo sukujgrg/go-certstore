@@ -7,6 +7,7 @@
 //   - macOS: Keychain via Security.framework (CGo required)
 //   - Windows: CertStore via CNG/CryptoAPI (CGo required)
 //   - Any platform with CGo: PKCS#11 via explicit module path
+//   - Any platform with CGo: NSS via explicit softokn3 module path and profile
 //   - Linux native store: returns an error (no standard system client-cert store)
 package certstore
 
@@ -150,6 +151,17 @@ type PKCS11IdentityInfo interface {
 	IdentityInfo
 	ModulePath() string
 	SlotID() uint
+	TokenLabel() string
+	TokenSerial() string
+}
+
+// NSSIdentityInfo exposes backend-specific metadata for NSS identities. The
+// NSS backend is configured explicitly with a softokn3 module path and an NSS
+// profile directory; this interface surfaces those values back to the caller.
+type NSSIdentityInfo interface {
+	IdentityInfo
+	ProfileDir() string
+	ModulePath() string
 	TokenLabel() string
 	TokenSerial() string
 }

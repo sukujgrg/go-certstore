@@ -7,6 +7,7 @@ Currently supported:
 - macOS Keychain
 - Windows Cert Store
 - explicit-module PKCS#11 tokens
+- explicit-module NSS profiles/databases
 
 ## Platform support
 
@@ -16,7 +17,8 @@ Currently supported:
 | Windows  | CertStore (CNG / CryptoAPI)   | Implemented | Yes |
 | Linux    | Native system store           | Not supported | No |
 | Any      | PKCS#11 (explicit module path) | Implemented | Yes |
-| Any      | NSS / p11-kit discovery       | Not implemented yet | TBD |
+| Any      | NSS (explicit softokn3 module path + profile dir) | Implemented | Yes |
+| Any      | p11-kit discovery             | Not implemented yet | TBD |
 
 ## Install
 
@@ -57,7 +59,8 @@ Important helpers:
 
 - macOS and Windows use the native backend by default
 - PKCS#11 is selected when PKCS#11 options are supplied
-- NSS and `p11-kit` discovery are currently unsupported and return `ErrUnsupportedBackend`
+- NSS is selected when NSS options are supplied
+- `p11-kit` discovery is currently unsupported and returns `ErrUnsupportedBackend`
 
 ## Selection Semantics
 
@@ -84,6 +87,7 @@ Metadata quality depends on the backend.
 
 - Native backends expose generic identity metadata such as backend name, key type, label, and a cert-derived URI
 - PKCS#11 also exposes token-specific metadata through `PKCS11IdentityInfo`
+- NSS also exposes backend-specific metadata through `NSSIdentityInfo`
 
 Capability metadata also has two levels:
 
@@ -97,8 +101,8 @@ Prefer `IdentityCapabilityInfo` when you need to distinguish `no` from `unknown`
 The most useful exported errors to branch on are:
 
 - `ErrIdentityNotFound` when no identity matches the current filters
-- `ErrPINRequired` when a token requires PIN-related input or reports a PIN state problem
-- `ErrIncorrectPIN` when token credentials were supplied but rejected
+- `ErrCredentialRequired` when a backend requires credentials or reports a credential state problem
+- `ErrIncorrectCredential` when backend credentials were supplied but rejected
 - `ErrUnsupportedBackend` when a backend is unavailable on the current platform or not implemented
 - `ErrClosed` when a signer or resource is used after explicit cleanup
 
@@ -117,8 +121,21 @@ store, err := certstore.Open(
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module("/path/to/pkcs11/module"),
     certstore.WithPKCS11TokenLabel("YubiKey PIV"),
-    certstore.WithPKCS11PINPrompt(func(info certstore.PromptInfo) (string, error) {
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
         return os.Getenv("PKCS11_PIN"), nil
+    }),
+)
+```
+
+Explicit NSS backend:
+
+```go
+store, err := certstore.Open(
+    certstore.WithBackend(certstore.BackendNSS),
+    certstore.WithNSSModule("/path/to/libsoftokn3.so"),
+    certstore.WithNSSProfileDir("/path/to/nssdb"),
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
+        return os.Getenv("CERTSTORE_PIN"), nil
     }),
 )
 ```
@@ -138,6 +155,7 @@ tlsConfig := &tls.Config{
 ## Docs
 
 - [PKCS#11 Usage](/Users/suku/github/sukujgrg/go-certstore/docs/pkcs11.md)
+- [NSS Usage](/Users/suku/github/sukujgrg/go-certstore/docs/nss.md)
 - [Examples](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md)
 
 The PKCS#11 guide includes:
@@ -149,6 +167,14 @@ The PKCS#11 guide includes:
 - how to create a SoftHSM config and token
 - how to import PKCS#8 keys and certificates
 - TLS helper usage with tokens
+
+The NSS guide covers:
+
+- explicit `softokn3` module configuration
+- explicit NSS profile/database selection
+- application-provided PIN/password callbacks
+- NSS-specific identity metadata
+- runnable example commands
 
 ## Runnable examples
 
@@ -164,9 +190,10 @@ Run them with:
 go run ./examples/list-identities
 go run ./examples/tls-client -subject "client.example.com"
 go run ./examples/export-cert -subject "client.example.com"
+go run ./examples/list-identities -backend nss -module /path/to/libsoftokn3.so -profile /path/to/nssdb
 ```
 
-See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for PKCS#11 flag examples.
+See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for PKCS#11 and NSS flag examples.
 
 ## Signing support
 
@@ -179,8 +206,10 @@ See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md
 ## Notes
 
 - PKCS#11 support currently requires an explicit module path.
-- NSS and `p11-kit` discovery are intentionally not implemented yet.
+- NSS support currently requires an explicit `softokn3` module path and profile/database directory.
+- `p11-kit` discovery is intentionally not implemented yet.
 - PKCS#11 identities now expose richer metadata through `PKCS11IdentityInfo`.
+- NSS identities now expose richer metadata through `NSSIdentityInfo`.
 - Native-handle-backed signers can be cleaned up explicitly with `CloseSigner`.
 
 ## Credits

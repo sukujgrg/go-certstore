@@ -5,13 +5,13 @@ Runnable example programs live under `examples/`.
 ## Available examples
 
 - `examples/list-identities`
-  - Enumerate identities from the default backend or PKCS#11
+  - Enumerate identities from the default backend, PKCS#11, or NSS
   - Print label, backend, key type, hardware-backed status, and certificate summary
   - Can filter by `-subject`, `-issuer`, and `-valid`
 - `examples/tls-client`
   - Select a TLS client certificate using `FindTLSCertificate`
   - Prints richer selection and rejection diagnostics
-  - Supports PKCS#11 options through flags/environment
+  - Supports PKCS#11 and NSS options through flags/environment
   - This example does not open a network connection
   - It simulates local certificate selection only, so you can see which identity would be chosen before wiring `GetClientCertificateFunc` into a real `tls.Config`
 - `examples/export-cert`
@@ -42,7 +42,18 @@ go run ./examples/list-identities \
   -token "go-certstore-test"
 ```
 
-The examples accept either `-pin` or `PKCS11_PIN`.
+The examples accept `-pin`, `CERTSTORE_PIN`, or `PKCS11_PIN`.
+
+With NSS:
+
+```sh
+export CERTSTORE_PIN=123456
+
+go run ./examples/list-identities \
+  -backend nss \
+  -module /path/to/libsoftokn3.so \
+  -profile /path/to/nssdb
+```
 
 ## Run the TLS helper example
 
@@ -70,7 +81,19 @@ go run ./examples/tls-client \
   -subject "pkcs11-client.example.com"
 ```
 
-The examples accept either `-pin` or `PKCS11_PIN`.
+The examples accept `-pin`, `CERTSTORE_PIN`, or `PKCS11_PIN`.
+
+With NSS:
+
+```sh
+export CERTSTORE_PIN=123456
+
+go run ./examples/tls-client \
+  -backend nss \
+  -module /path/to/libsoftokn3.so \
+  -profile /path/to/nssdb \
+  -subject "client.example.com"
+```
 
 For `-backend auto`, pass at least one filter such as `-subject` or `-issuer`.
 The example intentionally refuses to auto-pick an arbitrary native-store
@@ -95,6 +118,18 @@ Export the full chain:
 
 ```sh
 go run ./examples/export-cert \
+  -subject "client.example.com" \
+  -chain \
+  -out client-chain.pem
+```
+
+Export from NSS:
+
+```sh
+go run ./examples/export-cert \
+  -backend nss \
+  -module /path/to/libsoftokn3.so \
+  -profile /path/to/nssdb \
   -subject "client.example.com" \
   -chain \
   -out client-chain.pem

@@ -97,7 +97,7 @@ func TestPKCS11SoftHSMIntegration(t *testing.T) {
 		WithBackend(BackendPKCS11),
 		WithPKCS11Module(modulePath),
 		WithPKCS11TokenLabel(tokenLabel),
-		WithPKCS11PINPrompt(func(PromptInfo) (string, error) {
+		WithCredentialPrompt(func(PromptInfo) (string, error) {
 			return userPIN, nil
 		}),
 	)

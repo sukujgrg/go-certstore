@@ -11,10 +11,11 @@ import (
 
 func main() {
 	var (
-		backend = flag.String("backend", "auto", "backend: auto or pkcs11")
-		module  = flag.String("module", "", "PKCS#11 module path")
+		backend = flag.String("backend", "auto", "backend: auto, pkcs11, or nss")
+		module  = flag.String("module", "", "module path (PKCS#11 module or NSS softokn3)")
+		profile = flag.String("profile", "", "NSS profile/database directory")
 		token   = flag.String("token", "", "PKCS#11 token label")
-		pin     = flag.String("pin", "", "PKCS#11 user PIN")
+		pin     = flag.String("pin", "", "token or database PIN/password")
 		subject = flag.String("subject", "", "subject CN to match")
 		issuer  = flag.String("issuer", "", "issuer CN to match")
 		chain   = flag.Bool("chain", false, "export full certificate chain")
@@ -27,22 +28,34 @@ func main() {
 	case "auto":
 	case "pkcs11":
 		openOpts = append(openOpts, certstore.WithBackend(certstore.BackendPKCS11))
+	case "nss":
+		openOpts = append(openOpts, certstore.WithBackend(certstore.BackendNSS))
 	default:
 		log.Fatalf("unsupported backend %q", *backend)
 	}
 	if *module != "" {
-		openOpts = append(openOpts, certstore.WithPKCS11Module(*module))
+		if *backend == "nss" {
+			openOpts = append(openOpts, certstore.WithNSSModule(*module))
+		} else {
+			openOpts = append(openOpts, certstore.WithPKCS11Module(*module))
+		}
+	}
+	if *profile != "" {
+		openOpts = append(openOpts, certstore.WithNSSProfileDir(*profile))
 	}
 	if *token != "" {
 		openOpts = append(openOpts, certstore.WithPKCS11TokenLabel(*token))
 	}
-	if *pin != "" {
-		openOpts = append(openOpts, certstore.WithPKCS11PINPrompt(func(certstore.PromptInfo) (string, error) {
-			return *pin, nil
-		}))
-	} else if envPIN := os.Getenv("PKCS11_PIN"); envPIN != "" {
-		openOpts = append(openOpts, certstore.WithPKCS11PINPrompt(func(certstore.PromptInfo) (string, error) {
-			return envPIN, nil
+	pinValue := *pin
+	if pinValue == "" {
+		pinValue = os.Getenv("CERTSTORE_PIN")
+	}
+	if pinValue == "" {
+		pinValue = os.Getenv("PKCS11_PIN")
+	}
+	if pinValue != "" {
+		openOpts = append(openOpts, certstore.WithCredentialPrompt(func(certstore.PromptInfo) (string, error) {
+			return pinValue, nil
 		}))
 	}
 
@@ -58,6 +71,8 @@ func main() {
 	}
 	if *backend == "pkcs11" {
 		findOpts.Backend = certstore.BackendPKCS11
+	} else if *backend == "nss" {
+		findOpts.Backend = certstore.BackendNSS
 	}
 
 	ident, err := certstore.FindIdentity(store, findOpts)
