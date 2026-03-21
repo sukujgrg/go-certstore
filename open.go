@@ -4,8 +4,17 @@ import (
 	"fmt"
 )
 
-// Open opens the configured identity backend. Calling Open() with no options
-// preserves the current platform-default behavior.
+// Open opens the configured identity backend.
+//
+// With no options, Open preserves the current platform-default behavior by
+// opening the native backend for the current OS.
+//
+// When BackendAuto is selected explicitly or implicitly:
+//   - native macOS and Windows backends are used by default
+//   - PKCS#11 is selected instead when PKCS#11 options are supplied
+//   - NSS and p11-kit discovery currently return ErrUnsupportedBackend
+//
+// Use WithBackend to force a specific backend.
 func Open(opts ...Option) (Store, error) {
 	cfg := Options{Backend: BackendAuto}
 	for _, opt := range opts {

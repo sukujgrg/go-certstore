@@ -7,6 +7,10 @@ import (
 
 // FindIdentityOptions controls identity filtering and selection outside of the
 // TLS-specific helper path.
+//
+// FindIdentity returns at most one best-ranked identity from the matches, while
+// FindIdentities returns all matches without ranking them down to a single
+// winner.
 type FindIdentityOptions struct {
 	Backend Backend
 
@@ -26,6 +30,9 @@ type FindIdentityOptions struct {
 
 // FindIdentities returns identities that match the requested certificate and
 // metadata filters. Non-matching identities are closed before returning.
+//
+// It returns all matches. Use FindIdentity if you want a single best-ranked
+// identity instead.
 func FindIdentities(store Store, opts FindIdentityOptions) ([]Identity, error) {
 	idents, err := store.Identities()
 	if err != nil {
@@ -48,6 +55,11 @@ func FindIdentities(store Store, opts FindIdentityOptions) ([]Identity, error) {
 }
 
 // FindIdentity returns the best matching identity and closes the rest.
+//
+// If more than one identity matches, the current scoring gives a strong bonus
+// to hardware-backed identities when PreferHardwareBacked is set, gives a
+// smaller bonus to currently valid certificates, and also favors later expiry.
+// This is a scoring heuristic, not a strict lexicographic ordering.
 func FindIdentity(store Store, opts FindIdentityOptions) (Identity, error) {
 	idents, err := FindIdentities(store, opts)
 	if err != nil {

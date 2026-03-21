@@ -49,6 +49,59 @@ Important helpers:
 - `GetClientCertificateFunc`
 - `CloseSigner`
 
+## Backend Resolution
+
+`Open()` with no options uses the native backend for the current platform.
+
+`Open(WithBackend(BackendAuto), ...)` follows these rules:
+
+- macOS and Windows use the native backend by default
+- PKCS#11 is selected when PKCS#11 options are supplied
+- NSS and `p11-kit` discovery are currently unsupported and return `ErrUnsupportedBackend`
+
+## Selection Semantics
+
+Helpers that select a single identity return one best match, not all matches.
+
+- `FindTLSCertificate` returns one TLS client certificate
+- `GetClientCertificateFunc` returns one certificate per handshake callback
+- `FindIdentity` returns one best-ranked identity
+- `FindIdentities` returns all matching identities
+
+When more than one identity matches, the current ranking:
+
+- gives a strong bonus to hardware-backed identities when requested
+- gives a smaller bonus to currently valid certificates
+- also favors certificates with later expiry
+
+This is a scoring heuristic, not a strict lexicographic guarantee.
+
+If you need to inspect every matching identity, use `FindIdentities`.
+
+## Metadata Semantics
+
+Metadata quality depends on the backend.
+
+- Native backends expose generic identity metadata such as backend name, key type, label, and a cert-derived URI
+- PKCS#11 also exposes token-specific metadata through `PKCS11IdentityInfo`
+
+Capability metadata also has two levels:
+
+- `IdentityInfo` exposes compatibility booleans such as `IsHardwareBacked()`
+- `IdentityCapabilityInfo` exposes tri-state values so callers can distinguish `yes`, `no`, and `unknown`
+
+Prefer `IdentityCapabilityInfo` when you need to distinguish `no` from `unknown`.
+
+## Error Handling
+
+The most useful exported errors to branch on are:
+
+- `ErrIdentityNotFound` when no identity matches the current filters
+- `ErrPINRequired` when a token requires PIN-related input or reports a PIN state problem
+- `ErrIncorrectPIN` when token credentials were supplied but rejected
+- `ErrUnsupportedBackend` when a backend is unavailable on the current platform or not implemented
+- `ErrClosed` when a signer or resource is used after explicit cleanup
+
 ## Quick start
 
 Default backend for the current platform:
@@ -103,12 +156,14 @@ Runnable programs now live under `examples/`.
 
 - [examples/list-identities](/Users/suku/github/sukujgrg/go-certstore/examples/list-identities/main.go)
 - [examples/tls-client](/Users/suku/github/sukujgrg/go-certstore/examples/tls-client/main.go)
+- [examples/export-cert](/Users/suku/github/sukujgrg/go-certstore/examples/export-cert/main.go)
 
 Run them with:
 
 ```sh
 go run ./examples/list-identities
 go run ./examples/tls-client -subject "client.example.com"
+go run ./examples/export-cert -subject "client.example.com"
 ```
 
 See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for PKCS#11 flag examples.

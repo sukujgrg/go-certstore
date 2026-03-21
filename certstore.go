@@ -97,6 +97,10 @@ func CloseSigner(signer crypto.Signer) error {
 // IdentityInfo provides optional metadata for backends that can surface a
 // stable identity label or location. Not all Identity implementations expose
 // this information.
+//
+// The IsHardwareBacked and RequiresLogin booleans are kept for broad
+// compatibility. Callers that need to distinguish "no" from "unknown" should
+// prefer IdentityCapabilityInfo when it is implemented.
 type IdentityInfo interface {
 	Label() string
 	Backend() Backend
@@ -111,11 +115,15 @@ type IdentityInfo interface {
 type CapabilityState int
 
 const (
+	// CapabilityUnknown means the backend cannot currently determine the value.
 	CapabilityUnknown CapabilityState = iota
+	// CapabilityNo means the capability is known to be absent.
 	CapabilityNo
+	// CapabilityYes means the capability is known to be present.
 	CapabilityYes
 )
 
+// String returns a user-facing representation of the capability state.
 func (s CapabilityState) String() string {
 	switch s {
 	case CapabilityNo:
@@ -128,14 +136,16 @@ func (s CapabilityState) String() string {
 }
 
 // IdentityCapabilityInfo provides tri-state capability metadata for identities
-// where a backend can distinguish "no" from "not determined".
+// where a backend can distinguish "no" from "not determined". When available,
+// callers should prefer it over the boolean methods on IdentityInfo.
 type IdentityCapabilityInfo interface {
 	HardwareBackedState() CapabilityState
 	LoginRequiredState() CapabilityState
 }
 
 // PKCS11IdentityInfo exposes backend-specific metadata for PKCS#11 identities.
-// It is implemented only by the PKCS#11 backend.
+// It is implemented only by the PKCS#11 backend. Native backends expose the
+// generic IdentityInfo surface but do not provide token-specific fields.
 type PKCS11IdentityInfo interface {
 	IdentityInfo
 	ModulePath() string

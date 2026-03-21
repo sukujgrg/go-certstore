@@ -11,6 +11,12 @@ import (
 )
 
 // SelectOptions controls how a client certificate is selected for TLS use.
+//
+// When multiple identities match these filters, FindTLSCertificate returns a
+// single best candidate rather than all matches. The current scoring gives a
+// strong bonus to hardware-backed identities when PreferHardwareBacked is set,
+// gives a smaller bonus to currently valid certificates, and also favors later
+// expiry. This is a scoring heuristic, not a strict lexicographic ordering.
 type SelectOptions struct {
 	SubjectCN            string
 	IssuerCN             string
@@ -20,6 +26,11 @@ type SelectOptions struct {
 
 // FindTLSCertificate selects the best matching identity from an open store and
 // converts it into a tls.Certificate.
+//
+// If more than one identity matches, it returns the highest-ranked candidate
+// according to SelectOptions and internal scoring. Use FindIdentities or direct
+// store enumeration if you need to inspect multiple matches instead of a single
+// winner.
 func FindTLSCertificate(store Store, opts SelectOptions) (*tls.Certificate, error) {
 	return findTLSCertificate(store, opts, nil)
 }
@@ -27,6 +38,9 @@ func FindTLSCertificate(store Store, opts SelectOptions) (*tls.Certificate, erro
 // GetClientCertificateFunc returns a callback suitable for
 // tls.Config.GetClientCertificate. It opens the store on each invocation and
 // selects the best matching identity for the server's request.
+//
+// Like FindTLSCertificate, this returns at most one certificate even when
+// multiple identities match.
 func GetClientCertificateFunc(openOpts []Option, selectOpts SelectOptions) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	return func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 		store, err := Open(openOpts...)

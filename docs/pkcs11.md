@@ -65,6 +65,13 @@ The library intentionally leaves PIN collection to the application. Use
 - keychain/secret manager lookup
 - env/config injection
 
+Selection note:
+
+- `FindIdentity` returns one best-ranked identity when multiple PKCS#11
+  identities match
+- `FindIdentities` returns all matching identities
+- `FindTLSCertificate` returns one best-ranked TLS certificate
+
 ## Explicit signer cleanup
 
 Some backends keep native key handles alive while the signer exists. When you

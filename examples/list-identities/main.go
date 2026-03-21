@@ -16,6 +16,8 @@ func main() {
 		module  = flag.String("module", "", "PKCS#11 module path")
 		token   = flag.String("token", "", "PKCS#11 token label")
 		pin     = flag.String("pin", "", "PKCS#11 user PIN")
+		subject = flag.String("subject", "", "filter by subject common name")
+		issuer  = flag.String("issuer", "", "filter by issuer common name")
 		valid   = flag.Bool("valid", false, "only show currently valid identities")
 	)
 	flag.Parse()
@@ -51,6 +53,8 @@ func main() {
 	defer store.Close()
 
 	findOpts := certstore.FindIdentityOptions{
+		SubjectCN: *subject,
+		IssuerCN:  *issuer,
 		ValidOnly: *valid,
 	}
 	if *backend == "pkcs11" {
