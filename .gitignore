@@ -13,3 +13,4 @@
 !examples/
 !examples/*/
 !examples/*/*.go
+!Makefile

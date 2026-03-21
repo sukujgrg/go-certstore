@@ -56,10 +56,10 @@ func FindIdentities(store Store, opts FindIdentityOptions) ([]Identity, error) {
 
 // FindIdentity returns the best matching identity and closes the rest.
 //
-// If more than one identity matches, the current scoring gives a strong bonus
-// to hardware-backed identities when PreferHardwareBacked is set, gives a
-// smaller bonus to currently valid certificates, and also favors later expiry.
-// This is a scoring heuristic, not a strict lexicographic ordering.
+// If more than one identity matches, the current scoring ranks identities known
+// to be hardware-backed above other matches when PreferHardwareBacked is set,
+// gives a smaller bonus to currently valid certificates, and also favors later
+// expiry. This is a scoring heuristic, not a strict lexicographic ordering.
 func FindIdentity(store Store, opts FindIdentityOptions) (Identity, error) {
 	idents, err := FindIdentities(store, opts)
 	if err != nil {

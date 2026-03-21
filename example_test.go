@@ -1,6 +1,9 @@
 package certstore_test
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -126,5 +129,36 @@ func Example_filterSubstring() {
 	fmt.Printf("Found %d matching certificates\n", len(idents))
 	for _, ident := range idents {
 		ident.Close()
+	}
+}
+
+// Example_signerCleanup demonstrates obtaining a signer directly and releasing
+// its resources explicitly when done.
+func Example_signerCleanup() {
+	store, err := certstore.Open()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+
+	ident, err := certstore.FindIdentity(store, certstore.FindIdentityOptions{
+		SubjectCN: "myhost.example.com",
+		ValidOnly: true,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ident.Close()
+
+	signer, err := ident.Signer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer certstore.CloseSigner(signer)
+
+	digest := sha256.Sum256([]byte("example payload"))
+	_, err = signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+	if err != nil {
+		log.Fatal(err)
 	}
 }

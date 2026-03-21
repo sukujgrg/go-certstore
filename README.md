@@ -2,13 +2,6 @@
 
 A Go library for accessing client certificate identities across native OS stores and token-backed backends.
 
-Currently supported:
-
-- macOS Keychain
-- Windows Cert Store
-- explicit-module PKCS#11 tokens
-- explicit-module NSS profiles/databases
-
 ## Platform support
 
 | Platform | Backend | Status | CGo required |
@@ -49,6 +42,19 @@ Important helpers:
 - `FindTLSCertificate`
 - `GetClientCertificateFunc`
 - `CloseSigner`
+
+Use `CloseSigner` when you obtain a signer directly from `Identity.Signer()`:
+
+```go
+signer, err := ident.Signer()
+if err != nil {
+    return err
+}
+defer certstore.CloseSigner(signer)
+```
+
+That lets backends release native handles or token sessions promptly instead of
+waiting for garbage collection.
 
 ## Scope
 
@@ -113,7 +119,7 @@ Helpers that select a single identity return one best match, not all matches.
 
 When more than one identity matches, the current ranking:
 
-- gives a strong bonus to hardware-backed identities when requested
+- ranks identities known to be hardware-backed above other matches when requested
 - gives a smaller bonus to currently valid certificates
 - also favors certificates with later expiry
 
@@ -198,24 +204,6 @@ tlsConfig := &tls.Config{
 - [NSS Usage](/Users/suku/github/sukujgrg/go-certstore/docs/nss.md)
 - [Examples](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md)
 
-The PKCS#11 guide includes:
-
-- YubiKey / OpenSC usage
-- application-provided PIN callback
-- explicit signer cleanup
-- SoftHSM installation
-- how to create a SoftHSM config and token
-- how to import PKCS#8 keys and certificates
-- TLS helper usage with tokens
-
-The NSS guide covers:
-
-- explicit `softokn3` module configuration
-- explicit NSS profile/database selection
-- application-provided credential callbacks
-- NSS-specific identity metadata
-- runnable example commands
-
 ## Runnable examples
 
 Runnable programs now live under `examples/`.
@@ -224,29 +212,18 @@ Runnable programs now live under `examples/`.
 - [examples/tls-client](/Users/suku/github/sukujgrg/go-certstore/examples/tls-client/main.go)
 - [examples/export-cert](/Users/suku/github/sukujgrg/go-certstore/examples/export-cert/main.go)
 
-Run them with:
-
-```sh
-go run ./examples/list-identities
-go run ./examples/tls-client -subject "client.example.com"
-go run ./examples/export-cert -subject "client.example.com"
-go run ./examples/list-identities -backend nss -module /path/to/libsoftokn3.so -profile /path/to/nssdb
-```
-
-See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for PKCS#11 and NSS flag examples.
+See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for runnable commands and PKCS#11/NSS flag usage.
 
 ## Signing support
 
-| Algorithm | macOS | Windows (CNG) | Windows (CryptoAPI) | PKCS#11 |
-|-----------|:-----:|:--------------:|:-------------------:|:-------:|
-| RSA PKCS#1 v1.5 (SHA1/256/384/512) | Yes | Yes | Yes | Yes |
-| RSA-PSS (SHA256/384/512) | Yes | Yes | — | Yes |
-| ECDSA (SHA1/256/384/512) | Yes | Yes | — | Yes |
+| Algorithm | macOS | Windows (CNG) | Windows (CryptoAPI) | PKCS#11 | NSS |
+|-----------|:-----:|:--------------:|:-------------------:|:-------:|:---:|
+| RSA PKCS#1 v1.5 (SHA1/256/384/512) | Yes | Yes | Yes | Yes | Yes |
+| RSA-PSS (SHA256/384/512) | Yes | Yes | — | Yes | Yes |
+| ECDSA (SHA1/256/384/512) | Yes | Yes | — | Yes | Yes |
 
 ## Notes
 
-- PKCS#11 support currently requires an explicit module path.
-- NSS support currently requires an explicit `softokn3` module path and profile/database directory.
 - PKCS#11 identities now expose richer metadata through `PKCS11IdentityInfo`.
 - NSS identities now expose richer metadata through `NSSIdentityInfo`.
 - Native-handle-backed signers can be cleaned up explicitly with `CloseSigner`.

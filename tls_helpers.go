@@ -13,10 +13,11 @@ import (
 // SelectOptions controls how a client certificate is selected for TLS use.
 //
 // When multiple identities match these filters, FindTLSCertificate returns a
-// single best candidate rather than all matches. The current scoring gives a
-// strong bonus to hardware-backed identities when PreferHardwareBacked is set,
-// gives a smaller bonus to currently valid certificates, and also favors later
-// expiry. This is a scoring heuristic, not a strict lexicographic ordering.
+// single best candidate rather than all matches. The current scoring ranks
+// identities known to be hardware-backed above other matches when
+// PreferHardwareBacked is set, gives a smaller bonus to currently valid
+// certificates, and also favors later expiry. This is a scoring heuristic, not
+// a strict lexicographic ordering.
 type SelectOptions struct {
 	SubjectCN            string
 	IssuerCN             string

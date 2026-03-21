@@ -104,8 +104,13 @@ type CloseableSigner interface {
 }
 
 // CloseSigner closes signer resources when the concrete signer supports
-// explicit cleanup. It is a no-op for signers that do not implement
-// CloseableSigner.
+// explicit cleanup. This is the signer counterpart to Store.Close and
+// Identity.Close.
+//
+// Callers that obtain a signer directly from Identity.Signer should prefer to
+// call CloseSigner when they are done so native handles, key references, or
+// token sessions can be released promptly. It is a no-op for signers that do
+// not implement CloseableSigner.
 func CloseSigner(signer crypto.Signer) error {
 	if closer, ok := signer.(CloseableSigner); ok {
 		return closer.Close()

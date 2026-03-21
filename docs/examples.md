@@ -2,6 +2,9 @@
 
 Runnable example programs live under `examples/`.
 
+The examples accept `-pin`, `CERTSTORE_PIN`, or `PKCS11_PIN` when credentials
+are required.
+
 ## Available examples
 
 - `examples/list-identities`
@@ -42,8 +45,6 @@ go run ./examples/list-identities \
   -token "go-certstore-test"
 ```
 
-The examples accept `-pin`, `CERTSTORE_PIN`, or `PKCS11_PIN`.
-
 With NSS:
 
 ```sh
@@ -80,8 +81,6 @@ go run ./examples/tls-client \
   -token "go-certstore-test" \
   -subject "pkcs11-client.example.com"
 ```
-
-The examples accept `-pin`, `CERTSTORE_PIN`, or `PKCS11_PIN`.
 
 With NSS:
 
