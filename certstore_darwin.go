@@ -13,7 +13,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -42,7 +41,7 @@ func (s *macStore) Identities() ([]Identity, error) {
 		&C.kCFTypeDictionaryValueCallBacks,
 	)
 	if query == 0 {
-		return nil, errors.New("failed to create CFDictionary")
+		return nil, fmt.Errorf("list macOS identities: failed to create CFDictionary")
 	}
 	defer C.CFRelease(C.CFTypeRef(unsafe.Pointer(query))) //nolint:govet
 
@@ -56,7 +55,7 @@ func (s *macStore) Identities() ([]Identity, error) {
 		return nil, nil
 	}
 	if status != C.errSecSuccess {
-		return nil, fmt.Errorf("SecItemCopyMatching failed: OSStatus %d", int32(status))
+		return nil, fmt.Errorf("list macOS identities: SecItemCopyMatching failed: OSStatus %d", int32(status))
 	}
 	defer C.CFRelease(result)
 
@@ -132,7 +131,7 @@ func (id *macIdentity) Certificate() (*x509.Certificate, error) {
 
 	var certRef C.SecCertificateRef
 	if status := C.SecIdentityCopyCertificate(id.ref, &certRef); status != C.errSecSuccess {
-		return nil, fmt.Errorf("SecIdentityCopyCertificate failed: OSStatus %d", int32(status))
+		return nil, fmt.Errorf("load macOS certificate: SecIdentityCopyCertificate failed: OSStatus %d", int32(status))
 	}
 	defer C.CFRelease(C.CFTypeRef(certRef))
 
@@ -141,14 +140,14 @@ func (id *macIdentity) Certificate() (*x509.Certificate, error) {
 	if status := C.SecItemExport(
 		C.CFTypeRef(certRef), C.kSecFormatPEMSequence, C.kSecItemPemArmour, nil, &pemData,
 	); status != C.errSecSuccess {
-		return nil, fmt.Errorf("SecItemExport failed: OSStatus %d", int32(status))
+		return nil, fmt.Errorf("load macOS certificate: SecItemExport failed: OSStatus %d", int32(status))
 	}
 	defer C.CFRelease(C.CFTypeRef(pemData))
 
 	raw := C.GoBytes(unsafe.Pointer(C.CFDataGetBytePtr(pemData)), C.int(C.CFDataGetLength(pemData)))
 	block, _ := pem.Decode(raw)
 	if block == nil {
-		return nil, errors.New("no PEM block found in exported certificate")
+		return nil, fmt.Errorf("load macOS certificate: no PEM block found in exported certificate")
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
@@ -236,10 +235,10 @@ func (id *macIdentity) Signer() (crypto.Signer, error) {
 	if id.keyRef == 0 {
 		var keyRef C.SecKeyRef
 		if status := C.SecIdentityCopyPrivateKey(id.ref, &keyRef); status != C.errSecSuccess {
-			return nil, fmt.Errorf("SecIdentityCopyPrivateKey failed: OSStatus %d", int32(status))
+			return nil, fmt.Errorf("create macOS signer: SecIdentityCopyPrivateKey failed: OSStatus %d", int32(status))
 		}
 		if keyRef == 0 {
-			return nil, errors.New("SecIdentityCopyPrivateKey returned nil private key")
+			return nil, fmt.Errorf("create macOS signer: SecIdentityCopyPrivateKey returned nil private key")
 		}
 		id.keyRef = keyRef
 	}
@@ -253,7 +252,7 @@ func (id *macIdentity) Signer() (crypto.Signer, error) {
 	// the identity's lifecycle. The caller may Close() the identity while
 	// the signer is still in use (e.g. for TLS handshakes).
 	if id.keyRef == 0 {
-		return nil, errors.New("mac identity has no private key")
+		return nil, fmt.Errorf("create macOS signer: mac identity has no private key")
 	}
 	C.CFRetain(C.CFTypeRef(id.keyRef))
 
@@ -315,7 +314,7 @@ func (s *macSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]
 	sig := C.SecKeyCreateSignature(s.keyRef, algo, C.CFDataRef(data), &cfErr)
 	if cfErr != 0 {
 		defer C.CFRelease(C.CFTypeRef(cfErr))
-		return nil, fmt.Errorf("SecKeyCreateSignature failed")
+		return nil, fmt.Errorf("macOS signing failed: SecKeyCreateSignature failed")
 	}
 	defer C.CFRelease(C.CFTypeRef(sig))
 

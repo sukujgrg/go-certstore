@@ -36,16 +36,16 @@ func Open(opts ...Option) (Store, error) {
 	case BackendAuto:
 		if hasPKCS11Config(cfg) {
 			if cfg.PKCS11Module == "" {
-				return nil, fmt.Errorf("pkcs11 module path is required")
+				return nil, fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)
 			}
 			return openPKCS11Store(cfg)
 		}
 		if hasNSSConfig(cfg) {
 			if cfg.NSSModule == "" {
-				return nil, fmt.Errorf("nss module path is required")
+				return nil, fmt.Errorf("%w: nss module path is required", ErrInvalidConfiguration)
 			}
 			if cfg.NSSProfileDir == "" {
-				return nil, fmt.Errorf("nss profile directory is required")
+				return nil, fmt.Errorf("%w: nss profile directory is required", ErrInvalidConfiguration)
 			}
 			return openNSSStore(cfg)
 		}
@@ -91,13 +91,13 @@ func validateOptions(cfg Options) error {
 			return fmt.Errorf("%w: p11-kit discovery is not implemented yet", ErrUnsupportedBackend)
 		}
 		if hasPKCS11Config(cfg) && cfg.PKCS11Module == "" {
-			return fmt.Errorf("pkcs11 module path is required")
+			return fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)
 		}
 		if hasNSSConfig(cfg) && cfg.NSSModule == "" {
-			return fmt.Errorf("nss module path is required")
+			return fmt.Errorf("%w: nss module path is required", ErrInvalidConfiguration)
 		}
 		if hasNSSConfig(cfg) && cfg.NSSProfileDir == "" {
-			return fmt.Errorf("nss profile directory is required")
+			return fmt.Errorf("%w: nss profile directory is required", ErrInvalidConfiguration)
 		}
 	}
 
@@ -106,7 +106,7 @@ func validateOptions(cfg Options) error {
 			return fmt.Errorf("%w: p11-kit discovery is not implemented yet", ErrUnsupportedBackend)
 		}
 		if cfg.PKCS11Module == "" {
-			return fmt.Errorf("pkcs11 module path is required")
+			return fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)
 		}
 	}
 
@@ -115,10 +115,10 @@ func validateOptions(cfg Options) error {
 			return fmt.Errorf("%w: PKCS#11 options require backend %q or %q", ErrUnsupportedBackend, BackendAuto, BackendPKCS11)
 		}
 		if cfg.NSSModule == "" {
-			return fmt.Errorf("nss module path is required")
+			return fmt.Errorf("%w: nss module path is required", ErrInvalidConfiguration)
 		}
 		if cfg.NSSProfileDir == "" {
-			return fmt.Errorf("nss profile directory is required")
+			return fmt.Errorf("%w: nss profile directory is required", ErrInvalidConfiguration)
 		}
 	}
 	return nil

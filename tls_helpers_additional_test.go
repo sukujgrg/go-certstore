@@ -3,6 +3,7 @@ package certstore
 import (
 	"crypto/tls"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -15,7 +16,7 @@ func TestGetClientCertificateFuncOpenError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Error() != "pkcs11 module path is required" {
+	if !errors.Is(err, ErrInvalidConfiguration) || !strings.Contains(err.Error(), "pkcs11 module path is required") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

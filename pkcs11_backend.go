@@ -48,13 +48,13 @@ type pkcs11Store struct {
 func (s *pkcs11Store) Identities() ([]Identity, error) {
 	session, err := s.module.openSession()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open %s session: %w", s.module.backend, err)
 	}
 	defer s.module.closeSession(session)
 
 	certObjects, err := s.loadCertificateObjects(session)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load %s certificate objects: %w", s.module.backend, err)
 	}
 
 	chainPool := make([]*x509.Certificate, 0, len(certObjects))
@@ -69,23 +69,23 @@ func (s *pkcs11Store) Identities() ([]Identity, error) {
 		if err != nil && isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
 			if !loggedIn {
 				if err := s.module.login(session); err != nil {
-					return nil, err
+					return nil, fmt.Errorf("login to %s token: %w", s.module.backend, err)
 				}
 				loggedIn = true
 			}
 			hasKey, err = s.module.hasPrivateKey(session, certObject.keyID, certObject.label)
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("match %s private key for certificate %q: %w", s.module.backend, certObject.label, err)
 		}
 		if !hasKey && !loggedIn && s.module.tokenInfo.Flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
 			if err := s.module.login(session); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, err)
 			}
 			loggedIn = true
 			hasKey, err = s.module.hasPrivateKey(session, certObject.keyID, certObject.label)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("match %s private key for certificate %q: %w", s.module.backend, certObject.label, err)
 			}
 		}
 		if !hasKey {
@@ -93,7 +93,7 @@ func (s *pkcs11Store) Identities() ([]Identity, error) {
 		}
 		moduleRef, err := s.module.retain()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("retain %s module: %w", s.module.backend, err)
 		}
 		idents = append(idents, &pkcs11Identity{
 			module:    moduleRef,
@@ -113,7 +113,7 @@ func (s *pkcs11Store) loadCertificateObjects(session pkcs11.SessionHandle) ([]pk
 		pkcs11.NewAttribute(pkcs11.CKA_CERTIFICATE_TYPE, pkcs11.CKC_X_509),
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("find %s certificate objects: %w", s.module.backend, err)
 	}
 
 	certs := make([]pkcs11CertificateObject, 0, len(objects))
@@ -228,7 +228,7 @@ func (m *pkcs11Module) retain() (*pkcs11Module, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
-		return nil, errors.New("pkcs11 module is closed")
+		return nil, fmt.Errorf("%w: pkcs11 module", ErrClosed)
 	}
 	m.refs++
 	return m, nil
@@ -258,7 +258,7 @@ func (m *pkcs11Module) openSession() (pkcs11.SessionHandle, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
-		return 0, errors.New("pkcs11 module is closed")
+		return 0, fmt.Errorf("%w: pkcs11 module", ErrClosed)
 	}
 	return m.ctx.OpenSession(m.slotID, pkcs11.CKF_SERIAL_SESSION)
 }
@@ -357,6 +357,9 @@ type pkcs11Identity struct {
 func (id *pkcs11Identity) Certificate() (*x509.Certificate, error) {
 	id.once.Do(func() {
 		id.cert, id.certErr = x509.ParseCertificate(id.certDER)
+		if id.certErr != nil {
+			id.certErr = fmt.Errorf("parse %s certificate: %w", id.module.backend, id.certErr)
+		}
 	})
 	return id.cert, id.certErr
 }
@@ -372,13 +375,13 @@ func (id *pkcs11Identity) CertificateChain() ([]*x509.Certificate, error) {
 func (id *pkcs11Identity) Signer() (crypto.Signer, error) {
 	moduleRef, err := id.module.retain()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("retain %s module: %w", id.module.backend, err)
 	}
 
 	session, err := moduleRef.openSession()
 	if err != nil {
 		moduleRef.release()
-		return nil, err
+		return nil, fmt.Errorf("open %s session: %w", id.module.backend, err)
 	}
 
 	key, err := id.findPrivateKey(moduleRef, session, false)
@@ -388,19 +391,19 @@ func (id *pkcs11Identity) Signer() (crypto.Signer, error) {
 	if err != nil && !errors.Is(err, ErrIdentityNotFound) {
 		moduleRef.closeSession(session)
 		moduleRef.release()
-		return nil, err
+		return nil, fmt.Errorf("find %s private key: %w", id.module.backend, err)
 	}
 	if key == 0 {
 		if err := moduleRef.login(session); err != nil {
 			moduleRef.closeSession(session)
 			moduleRef.release()
-			return nil, err
+			return nil, fmt.Errorf("login to %s token: %w", id.module.backend, err)
 		}
 		key, err = id.findPrivateKey(moduleRef, session, true)
 		if err != nil {
 			moduleRef.closeSession(session)
 			moduleRef.release()
-			return nil, err
+			return nil, fmt.Errorf("find %s private key: %w", id.module.backend, err)
 		}
 	}
 
@@ -408,7 +411,7 @@ func (id *pkcs11Identity) Signer() (crypto.Signer, error) {
 	if err != nil {
 		moduleRef.closeSession(session)
 		moduleRef.release()
-		return nil, err
+		return nil, fmt.Errorf("load %s certificate for signer: %w", id.module.backend, err)
 	}
 
 	signer := &pkcs11Signer{
@@ -571,13 +574,13 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 
 	mech, input, err := pkcs11SignatureMechanism(s.pub, digest, opts)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("select %s signature mechanism: %w", s.module.backend, err)
 	}
 
 	if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
 		if isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
 			if loginErr := s.module.login(s.session); loginErr != nil {
-				return nil, loginErr
+				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, loginErr)
 			}
 			if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
 				return nil, fmt.Errorf("%w: %v", ErrMechanismUnsupported, err)
@@ -591,7 +594,7 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 	if err != nil {
 		if isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
 			if loginErr := s.module.login(s.session); loginErr != nil {
-				return nil, loginErr
+				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, loginErr)
 			}
 			if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
 				return nil, fmt.Errorf("%w: %v", ErrMechanismUnsupported, err)
@@ -604,7 +607,11 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 	}
 
 	if ecPub, ok := s.pub.(*ecdsa.PublicKey); ok {
-		return ecdsaRawToASN1(sig, ecPub)
+		sig, err = ecdsaRawToASN1(sig, ecPub)
+		if err != nil {
+			return nil, fmt.Errorf("convert %s ECDSA signature to ASN.1: %w", s.module.backend, err)
+		}
+		return sig, nil
 	}
 	return sig, nil
 }

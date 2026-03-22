@@ -217,7 +217,7 @@ func (id *winIdentity) CertificateChain() ([]*x509.Certificate, error) {
 func (id *winIdentity) Signer() (crypto.Signer, error) {
 	cert, err := id.Certificate()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load Windows certificate for signer: %w", err)
 	}
 
 	var (
@@ -236,7 +236,7 @@ func (id *winIdentity) Signer() (crypto.Signer, error) {
 		&callerFree,
 	)
 	if ok == 0 {
-		return nil, lastError("CryptAcquireCertificatePrivateKey")
+		return nil, fmt.Errorf("create Windows signer: %w", lastError("CryptAcquireCertificatePrivateKey"))
 	}
 
 	isNCrypt := keySpec == C.CERT_NCRYPT_KEY_SPEC

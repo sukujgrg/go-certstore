@@ -32,6 +32,7 @@ package certstore
 import (
 	"crypto"
 	"crypto/x509"
+	"fmt"
 )
 
 // FilterFunc is a predicate for filtering certificates.
@@ -44,13 +45,13 @@ type FilterFunc func(*x509.Certificate) bool
 func FilterIdentities(filter FilterFunc) ([]Identity, error) {
 	store, err := Open()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open store: %w", err)
 	}
 	defer store.Close()
 
 	idents, err := store.Identities()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list identities: %w", err)
 	}
 
 	var matched []Identity

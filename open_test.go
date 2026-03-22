@@ -1,6 +1,10 @@
 package certstore
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+)
 
 func TestValidateOptions(t *testing.T) {
 	t.Run("auto requires module when pkcs11 options are set", func(t *testing.T) {
@@ -8,7 +12,7 @@ func TestValidateOptions(t *testing.T) {
 			Backend:          BackendAuto,
 			PKCS11TokenLabel: "YubiKey",
 		})
-		if err == nil || err.Error() != "pkcs11 module path is required" {
+		if !errors.Is(err, ErrInvalidConfiguration) || !strings.Contains(err.Error(), "pkcs11 module path is required") {
 			t.Fatalf("expected missing module error, got %v", err)
 		}
 	})
@@ -17,7 +21,7 @@ func TestValidateOptions(t *testing.T) {
 		err := validateOptions(Options{
 			Backend: BackendPKCS11,
 		})
-		if err == nil || err.Error() != "pkcs11 module path is required" {
+		if !errors.Is(err, ErrInvalidConfiguration) || !strings.Contains(err.Error(), "pkcs11 module path is required") {
 			t.Fatalf("expected missing module error, got %v", err)
 		}
 	})
@@ -79,7 +83,7 @@ func TestValidateOptionsAdditionalCases(t *testing.T) {
 			Backend:       BackendNSS,
 			NSSProfileDir: "/tmp/nss",
 		})
-		if err == nil || err.Error() != "nss module path is required" {
+		if !errors.Is(err, ErrInvalidConfiguration) || !strings.Contains(err.Error(), "nss module path is required") {
 			t.Fatalf("expected missing module error, got %v", err)
 		}
 	})
@@ -89,7 +93,7 @@ func TestValidateOptionsAdditionalCases(t *testing.T) {
 			Backend:   BackendNSS,
 			NSSModule: "/tmp/libsoftokn3.so",
 		})
-		if err == nil || err.Error() != "nss profile directory is required" {
+		if !errors.Is(err, ErrInvalidConfiguration) || !strings.Contains(err.Error(), "nss profile directory is required") {
 			t.Fatalf("expected missing profile error, got %v", err)
 		}
 	})

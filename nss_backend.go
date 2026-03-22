@@ -39,7 +39,7 @@ type nssStore struct {
 func (s *nssStore) Identities() ([]Identity, error) {
 	idents, err := s.store.Identities()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list nss identities: %w", err)
 	}
 
 	wrapped := make([]Identity, 0, len(idents))
@@ -77,7 +77,11 @@ func (id *nssIdentity) CertificateChain() ([]*x509.Certificate, error) {
 }
 
 func (id *nssIdentity) Signer() (crypto.Signer, error) {
-	return id.pkcs11Identity.Signer()
+	signer, err := id.pkcs11Identity.Signer()
+	if err != nil {
+		return nil, fmt.Errorf("create nss signer: %w", err)
+	}
+	return signer, nil
 }
 
 func (id *nssIdentity) Close() {

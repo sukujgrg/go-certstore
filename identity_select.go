@@ -2,7 +2,14 @@ package certstore
 
 import (
 	"crypto/x509"
+	"fmt"
 	"time"
+)
+
+const (
+	identityScoreHardwareBackedPreferred = 1000
+	identityScoreCurrentlyValid          = 100
+	identityScorePerDayUntilExpiry       = 1
 )
 
 // FindIdentityOptions controls identity filtering and selection outside of the
@@ -36,7 +43,7 @@ type FindIdentityOptions struct {
 func FindIdentities(store Store, opts FindIdentityOptions) ([]Identity, error) {
 	idents, err := store.Identities()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list identities: %w", err)
 	}
 
 	var matched []Identity
@@ -156,13 +163,13 @@ func scoreIdentity(ident Identity, cert *x509.Certificate, opts FindIdentityOpti
 		now = time.Now()
 	}
 	if now.After(cert.NotBefore) && now.Before(cert.NotAfter) {
-		score += 100
+		score += identityScoreCurrentlyValid
 	}
 	if opts.PreferHardwareBacked {
 		if identityHardwareBackedState(ident) == CapabilityYes {
-			score += 1000
+			score += identityScoreHardwareBackedPreferred
 		}
 	}
-	score += int(cert.NotAfter.Sub(now).Hours() / 24)
+	score += int(cert.NotAfter.Sub(now).Hours()/24) * identityScorePerDayUntilExpiry
 	return score
 }

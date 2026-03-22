@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"time"
 )
 
@@ -60,7 +61,7 @@ type supportedSignatureAlgorithmProvider interface {
 func findTLSCertificate(store Store, opts SelectOptions, req *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	idents, err := store.Identities()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list identities for TLS selection: %w", err)
 	}
 
 	var (
@@ -155,14 +156,14 @@ func scoreTLSIdentity(ident Identity, cert *x509.Certificate, opts SelectOptions
 	score := 0
 	if opts.PreferHardwareBacked {
 		if identityHardwareBackedState(ident) == CapabilityYes {
-			score += 1000
+			score += identityScoreHardwareBackedPreferred
 		}
 	}
 	now := time.Now()
 	if now.After(cert.NotBefore) && now.Before(cert.NotAfter) {
-		score += 100
+		score += identityScoreCurrentlyValid
 	}
-	score += int(cert.NotAfter.Sub(now).Hours() / 24)
+	score += int(cert.NotAfter.Sub(now).Hours()/24) * identityScorePerDayUntilExpiry
 	return score
 }
 

@@ -30,4 +30,8 @@ var (
 
 	// ErrClosed is returned when an operation is attempted on a closed resource.
 	ErrClosed = errors.New("closed")
+
+	// ErrInvalidConfiguration is returned when the supplied backend or option
+	// combination is incomplete or inconsistent.
+	ErrInvalidConfiguration = errors.New("invalid configuration")
 )
