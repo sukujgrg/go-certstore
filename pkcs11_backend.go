@@ -24,8 +24,8 @@ import (
 	"github.com/miekg/pkcs11"
 )
 
-func openPKCS11Store(cfg Options) (Store, error) {
-	module, err := newPKCS11Module(cfg)
+func openPKCS11Store(ctx context.Context, cfg Options) (Store, error) {
+	module, err := newPKCS11Module(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ type tokenModuleConfig struct {
 	prompt     func(PromptInfo) (string, error)
 	initOpts   []pkcs11.InitializeOption
 	cleanup    func()
-	selectSlot func(*pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error)
+	selectSlot func(context.Context, *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error)
 }
 
 type pkcs11Store struct {
@@ -58,7 +58,7 @@ func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
 	}
 	defer s.module.closeSession(session)
 
-	certObjects, err := s.loadCertificateObjects(session)
+	certObjects, err := s.loadCertificateObjects(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("load %s certificate objects: %w", s.module.backend, err)
 	}
@@ -74,25 +74,25 @@ func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		hasKey, err := s.module.hasPrivateKey(session, certObject.keyID, certObject.label)
+		hasKey, err := s.module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
 		if err != nil && isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
 			if !loggedIn {
-				if err := s.module.login(session); err != nil {
+				if err := s.module.login(ctx, session); err != nil {
 					return nil, fmt.Errorf("login to %s token: %w", s.module.backend, err)
 				}
 				loggedIn = true
 			}
-			hasKey, err = s.module.hasPrivateKey(session, certObject.keyID, certObject.label)
+			hasKey, err = s.module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("match %s private key for certificate %q: %w", s.module.backend, certObject.label, err)
 		}
 		if !hasKey && !loggedIn && s.module.tokenInfo.Flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
-			if err := s.module.login(session); err != nil {
+			if err := s.module.login(ctx, session); err != nil {
 				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, err)
 			}
 			loggedIn = true
-			hasKey, err = s.module.hasPrivateKey(session, certObject.keyID, certObject.label)
+			hasKey, err = s.module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
 			if err != nil {
 				return nil, fmt.Errorf("match %s private key for certificate %q: %w", s.module.backend, certObject.label, err)
 			}
@@ -116,8 +116,8 @@ func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
 	return idents, nil
 }
 
-func (s *pkcs11Store) loadCertificateObjects(session pkcs11.SessionHandle) ([]pkcs11CertificateObject, error) {
-	objects, err := findPKCS11Objects(s.module.ctx, session, []*pkcs11.Attribute{
+func (s *pkcs11Store) loadCertificateObjects(ctx context.Context, session pkcs11.SessionHandle) ([]pkcs11CertificateObject, error) {
+	objects, err := findPKCS11Objects(ctx, s.module.ctx, session, []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_CERTIFICATE),
 		pkcs11.NewAttribute(pkcs11.CKA_CERTIFICATE_TYPE, pkcs11.CKC_X_509),
 	})
@@ -127,6 +127,9 @@ func (s *pkcs11Store) loadCertificateObjects(session pkcs11.SessionHandle) ([]pk
 
 	certs := make([]pkcs11CertificateObject, 0, len(objects))
 	for _, object := range objects {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		attrs, err := s.module.ctx.GetAttributeValue(session, object, []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_VALUE, nil),
 			pkcs11.NewAttribute(pkcs11.CKA_ID, nil),
@@ -178,20 +181,28 @@ type pkcs11Module struct {
 	closed    bool
 }
 
-func newPKCS11Module(cfg Options) (*pkcs11Module, error) {
-	return newTokenModule(tokenModuleConfig{
+func newPKCS11Module(ctx context.Context, cfg Options) (*pkcs11Module, error) {
+	return newTokenModule(ctx, tokenModuleConfig{
 		backend:    BackendPKCS11,
 		modulePath: cfg.PKCS11Module,
 		prompt:     cfg.CredentialPrompt,
-		selectSlot: func(ctx *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
-			return selectPKCS11Slot(ctx, cfg.PKCS11Slot, cfg.PKCS11TokenLabel)
+		selectSlot: func(ctx context.Context, pkcs11Ctx *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+			return selectPKCS11Slot(ctx, pkcs11Ctx, cfg.PKCS11Slot, cfg.PKCS11TokenLabel)
 		},
 	})
 }
 
-func newTokenModule(cfg tokenModuleConfig) (*pkcs11Module, error) {
-	ctx := pkcs11.New(cfg.modulePath)
-	if ctx == nil {
+func newTokenModule(ctx context.Context, cfg tokenModuleConfig) (*pkcs11Module, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		if cfg.cleanup != nil {
+			cfg.cleanup()
+		}
+		return nil, err
+	}
+
+	pkcs11Ctx := pkcs11.New(cfg.modulePath)
+	if pkcs11Ctx == nil {
 		if cfg.cleanup != nil {
 			cfg.cleanup()
 		}
@@ -199,22 +210,27 @@ func newTokenModule(cfg tokenModuleConfig) (*pkcs11Module, error) {
 	}
 
 	cleanup := func() {
-		_ = ctx.Finalize()
-		ctx.Destroy()
+		_ = pkcs11Ctx.Finalize()
+		pkcs11Ctx.Destroy()
 		if cfg.cleanup != nil {
 			cfg.cleanup()
 		}
 	}
 
-	if err := ctx.Initialize(cfg.initOpts...); err != nil {
-		ctx.Destroy()
+	if err := pkcs11Ctx.Initialize(cfg.initOpts...); err != nil {
+		pkcs11Ctx.Destroy()
 		if cfg.cleanup != nil {
 			cfg.cleanup()
 		}
 		return nil, fmt.Errorf("initializing %s module %q: %w", cfg.backend, cfg.modulePath, err)
 	}
 
-	slotID, slotInfo, tokenInfo, err := cfg.selectSlot(ctx)
+	if err := ctx.Err(); err != nil {
+		cleanup()
+		return nil, err
+	}
+
+	slotID, slotInfo, tokenInfo, err := cfg.selectSlot(ctx, pkcs11Ctx)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -222,7 +238,7 @@ func newTokenModule(cfg tokenModuleConfig) (*pkcs11Module, error) {
 
 	return &pkcs11Module{
 		backend:   cfg.backend,
-		ctx:       ctx,
+		ctx:       pkcs11Ctx,
 		module:    cfg.modulePath,
 		slotID:    slotID,
 		slotInfo:  slotInfo,
@@ -283,7 +299,11 @@ func (m *pkcs11Module) closeSession(session pkcs11.SessionHandle) {
 	_ = ctx.CloseSession(session)
 }
 
-func (m *pkcs11Module) login(session pkcs11.SessionHandle) error {
+func (m *pkcs11Module) login(ctx context.Context, session pkcs11.SessionHandle) error {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if m.tokenInfo.Flags&pkcs11.CKF_LOGIN_REQUIRED == 0 {
 		return nil
 	}
@@ -298,6 +318,9 @@ func (m *pkcs11Module) login(session pkcs11.SessionHandle) error {
 		Reason:     string(m.backend) + " login required",
 	})
 	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	err = m.ctx.Login(session, pkcs11.CKU_USER, pin)
@@ -316,9 +339,9 @@ func (m *pkcs11Module) login(session pkcs11.SessionHandle) error {
 	}
 }
 
-func (m *pkcs11Module) hasPrivateKey(session pkcs11.SessionHandle, keyID []byte, label string) (bool, error) {
+func (m *pkcs11Module) hasPrivateKey(ctx context.Context, session pkcs11.SessionHandle, keyID []byte, label string) (bool, error) {
 	if len(keyID) > 0 {
-		objects, err := findPKCS11Objects(m.ctx, session, []*pkcs11.Attribute{
+		objects, err := findPKCS11Objects(ctx, m.ctx, session, []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 			pkcs11.NewAttribute(pkcs11.CKA_ID, keyID),
 		})
@@ -330,7 +353,7 @@ func (m *pkcs11Module) hasPrivateKey(session pkcs11.SessionHandle, keyID []byte,
 		}
 	}
 	if label != "" {
-		objects, err := findPKCS11Objects(m.ctx, session, []*pkcs11.Attribute{
+		objects, err := findPKCS11Objects(ctx, m.ctx, session, []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 			pkcs11.NewAttribute(pkcs11.CKA_LABEL, label),
 		})
@@ -402,7 +425,7 @@ func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
 		return nil, fmt.Errorf("open %s session: %w", id.module.backend, err)
 	}
 
-	key, err := id.findPrivateKey(moduleRef, session, false)
+	key, err := id.findPrivateKey(ctx, moduleRef, session, false)
 	if err != nil && isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
 		err = nil
 	}
@@ -412,12 +435,12 @@ func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
 		return nil, fmt.Errorf("find %s private key: %w", id.module.backend, err)
 	}
 	if key == 0 {
-		if err := moduleRef.login(session); err != nil {
+		if err := moduleRef.login(ctx, session); err != nil {
 			moduleRef.closeSession(session)
 			moduleRef.release()
 			return nil, fmt.Errorf("login to %s token: %w", id.module.backend, err)
 		}
-		key, err = id.findPrivateKey(moduleRef, session, true)
+		key, err = id.findPrivateKey(ctx, moduleRef, session, true)
 		if err != nil {
 			moduleRef.closeSession(session)
 			moduleRef.release()
@@ -442,9 +465,9 @@ func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
 	return signer, nil
 }
 
-func (id *pkcs11Identity) findPrivateKey(module *pkcs11Module, session pkcs11.SessionHandle, retryWithLabel bool) (pkcs11.ObjectHandle, error) {
+func (id *pkcs11Identity) findPrivateKey(ctx context.Context, module *pkcs11Module, session pkcs11.SessionHandle, retryWithLabel bool) (pkcs11.ObjectHandle, error) {
 	if len(id.keyID) > 0 {
-		objects, err := findPKCS11Objects(module.ctx, session, []*pkcs11.Attribute{
+		objects, err := findPKCS11Objects(ctx, module.ctx, session, []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 			pkcs11.NewAttribute(pkcs11.CKA_ID, id.keyID),
 		})
@@ -456,7 +479,7 @@ func (id *pkcs11Identity) findPrivateKey(module *pkcs11Module, session pkcs11.Se
 		}
 	}
 	if retryWithLabel && id.label != "" {
-		objects, err := findPKCS11Objects(module.ctx, session, []*pkcs11.Attribute{
+		objects, err := findPKCS11Objects(ctx, module.ctx, session, []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 			pkcs11.NewAttribute(pkcs11.CKA_LABEL, id.label),
 		})
@@ -597,7 +620,7 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 
 	if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
 		if isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
-			if loginErr := s.module.login(s.session); loginErr != nil {
+			if loginErr := s.module.login(context.Background(), s.session); loginErr != nil {
 				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, loginErr)
 			}
 			if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
@@ -611,7 +634,7 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 	sig, err := s.module.ctx.Sign(s.session, input)
 	if err != nil {
 		if isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
-			if loginErr := s.module.login(s.session); loginErr != nil {
+			if loginErr := s.module.login(context.Background(), s.session); loginErr != nil {
 				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, loginErr)
 			}
 			if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
@@ -643,17 +666,30 @@ func (s *pkcs11Signer) release() {
 	}
 }
 
-func findPKCS11Objects(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, template []*pkcs11.Attribute) ([]pkcs11.ObjectHandle, error) {
-	if err := ctx.FindObjectsInit(session, template); err != nil {
+type pkcs11ObjectFinder interface {
+	FindObjectsInit(pkcs11.SessionHandle, []*pkcs11.Attribute) error
+	FindObjects(pkcs11.SessionHandle, int) ([]pkcs11.ObjectHandle, bool, error)
+	FindObjectsFinal(pkcs11.SessionHandle) error
+}
+
+func findPKCS11Objects(ctx context.Context, finder pkcs11ObjectFinder, session pkcs11.SessionHandle, template []*pkcs11.Attribute) ([]pkcs11.ObjectHandle, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := finder.FindObjectsInit(session, template); err != nil {
 		return nil, err
 	}
 	defer func() {
-		_ = ctx.FindObjectsFinal(session)
+		_ = finder.FindObjectsFinal(session)
 	}()
 
 	var objects []pkcs11.ObjectHandle
 	for {
-		matches, _, err := ctx.FindObjects(session, 64)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		matches, _, err := finder.FindObjects(session, 64)
 		if err != nil {
 			return nil, err
 		}
@@ -664,8 +700,18 @@ func findPKCS11Objects(ctx *pkcs11.Ctx, session pkcs11.SessionHandle, template [
 	}
 }
 
-func selectPKCS11Slot(ctx *pkcs11.Ctx, slotSelection *uint, tokenLabel string) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
-	slots, err := ctx.GetSlotList(true)
+type pkcs11SlotReader interface {
+	GetSlotList(bool) ([]uint, error)
+	GetSlotInfo(uint) (pkcs11.SlotInfo, error)
+	GetTokenInfo(uint) (pkcs11.TokenInfo, error)
+}
+
+func selectPKCS11Slot(ctx context.Context, reader pkcs11SlotReader, slotSelection *uint, tokenLabel string) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, err
+	}
+	slots, err := reader.GetSlotList(true)
 	if err != nil {
 		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("listing pkcs11 slots: %w", err)
 	}
@@ -674,11 +720,14 @@ func selectPKCS11Slot(ctx *pkcs11.Ctx, slotSelection *uint, tokenLabel string) (
 	}
 
 	if slotSelection != nil {
-		slotInfo, err := ctx.GetSlotInfo(*slotSelection)
+		if err := ctx.Err(); err != nil {
+			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, err
+		}
+		slotInfo, err := reader.GetSlotInfo(*slotSelection)
 		if err != nil {
 			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("reading pkcs11 slot %d: %w", *slotSelection, err)
 		}
-		tokenInfo, err := ctx.GetTokenInfo(*slotSelection)
+		tokenInfo, err := reader.GetTokenInfo(*slotSelection)
 		if err != nil {
 			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("reading pkcs11 token %d: %w", *slotSelection, err)
 		}
@@ -689,11 +738,14 @@ func selectPKCS11Slot(ctx *pkcs11.Ctx, slotSelection *uint, tokenLabel string) (
 	}
 
 	for _, slotID := range slots {
-		slotInfo, err := ctx.GetSlotInfo(slotID)
+		if err := ctx.Err(); err != nil {
+			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, err
+		}
+		slotInfo, err := reader.GetSlotInfo(slotID)
 		if err != nil {
 			continue
 		}
-		tokenInfo, err := ctx.GetTokenInfo(slotID)
+		tokenInfo, err := reader.GetTokenInfo(slotID)
 		if err != nil {
 			continue
 		}

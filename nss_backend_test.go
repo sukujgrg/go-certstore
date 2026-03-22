@@ -1,7 +1,9 @@
 package certstore
 
 import (
+	"context"
 	"encoding/hex"
+	"errors"
 	"strings"
 	"testing"
 
@@ -116,5 +118,27 @@ func TestNSSIdentityLabelFallsBackToCertificateSubject(t *testing.T) {
 
 	if got := ident.Label(); got != leaf.Subject.CommonName {
 		t.Fatalf("Label() = %q, want %q", got, leaf.Subject.CommonName)
+	}
+}
+
+func TestSelectNSSSlotStopsDuringScan(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	reader := &fakeSlotReader{
+		slots: []uint{1, 2},
+		tokenInfo: map[uint]pkcs11.TokenInfo{
+			1: {Label: "NSS Generic Crypto Services"},
+			2: {Label: "NSS Certificate DB"},
+		},
+		onGetTokenInfo: func(slotID uint) {
+			if slotID == 1 {
+				cancel()
+			}
+		},
+	}
+
+	_, _, _, err := selectNSSSlotFromReader(ctx, reader)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
 	}
 }

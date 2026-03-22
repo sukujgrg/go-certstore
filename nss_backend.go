@@ -19,8 +19,8 @@ import (
 	"github.com/miekg/pkcs11"
 )
 
-func openNSSStore(cfg Options) (Store, error) {
-	module, err := newNSSModule(cfg)
+func openNSSStore(ctx context.Context, cfg Options) (Store, error) {
+	module, err := newNSSModule(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -159,14 +159,14 @@ func (id *nssIdentity) TokenSerial() string {
 	return strings.TrimSpace(id.pkcs11Identity.module.tokenInfo.SerialNumber)
 }
 
-func newNSSModule(cfg Options) (*pkcs11Module, error) {
+func newNSSModule(ctx context.Context, cfg Options) (*pkcs11Module, error) {
 	profileSpec := normalizeNSSProfileDir(cfg.NSSProfileDir)
 	reserved := C.CString(fmt.Sprintf("configdir='%s' certPrefix='' keyPrefix='' secmod='secmod.db' flags=readOnly", profileSpec))
 	cleanup := func() {
 		C.free(unsafe.Pointer(reserved))
 	}
 
-	return newTokenModule(tokenModuleConfig{
+	return newTokenModule(ctx, tokenModuleConfig{
 		backend:    BackendNSS,
 		modulePath: cfg.NSSModule,
 		prompt:     cfg.CredentialPrompt,
@@ -189,8 +189,16 @@ func normalizeNSSProfileDir(dir string) string {
 	}
 }
 
-func selectNSSSlot(ctx *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
-	slots, err := ctx.GetSlotList(true)
+func selectNSSSlot(ctx context.Context, reader *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+	return selectNSSSlotFromReader(ctx, reader)
+}
+
+func selectNSSSlotFromReader(ctx context.Context, reader pkcs11SlotReader) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, err
+	}
+	slots, err := reader.GetSlotList(true)
 	if err != nil {
 		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, fmt.Errorf("listing nss slots: %w", err)
 	}
@@ -208,11 +216,14 @@ func selectNSSSlot(ctx *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, er
 	var firstAny *candidate
 
 	for _, slotID := range slots {
-		slotInfo, err := ctx.GetSlotInfo(slotID)
+		if err := ctx.Err(); err != nil {
+			return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, err
+		}
+		slotInfo, err := reader.GetSlotInfo(slotID)
 		if err != nil {
 			continue
 		}
-		tokenInfo, err := ctx.GetTokenInfo(slotID)
+		tokenInfo, err := reader.GetTokenInfo(slotID)
 		if err != nil {
 			continue
 		}

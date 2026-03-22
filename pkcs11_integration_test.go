@@ -205,7 +205,7 @@ func discoverSoftHSMPrivateKey(t *testing.T, modulePath, tokenLabel, userPIN str
 		_ = ctx.Finalize()
 	}()
 
-	slotID, _, _, err := selectPKCS11Slot(ctx, nil, tokenLabel)
+	slotID, _, _, err := selectPKCS11Slot(context.Background(), ctx, nil, tokenLabel)
 	if err != nil {
 		t.Fatalf("select pkcs11 slot: %v", err)
 	}
@@ -225,7 +225,7 @@ func discoverSoftHSMPrivateKey(t *testing.T, modulePath, tokenLabel, userPIN str
 		_ = ctx.Logout(session)
 	}()
 
-	objects, err := findPKCS11Objects(ctx, session, []*pkcs11.Attribute{
+	objects, err := findPKCS11Objects(context.Background(), ctx, session, []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
 	})
 	if err != nil {

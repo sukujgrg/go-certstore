@@ -47,7 +47,7 @@ func Open(ctx context.Context, opts ...Option) (Store, error) {
 			if cfg.PKCS11Module == "" {
 				return nil, fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)
 			}
-			return openPKCS11Store(cfg)
+			return openPKCS11Store(ctx, cfg)
 		}
 		if hasNSSConfig(cfg) {
 			if cfg.NSSModule == "" {
@@ -56,16 +56,16 @@ func Open(ctx context.Context, opts ...Option) (Store, error) {
 			if cfg.NSSProfileDir == "" {
 				return nil, fmt.Errorf("%w: nss profile directory is required", ErrInvalidConfiguration)
 			}
-			return openNSSStore(cfg)
+			return openNSSStore(ctx, cfg)
 		}
 		if cfg.UseP11Kit {
 			return nil, fmt.Errorf("%w: p11-kit discovery is unsupported", ErrUnsupportedBackend)
 		}
 		return openNativeStore()
 	case BackendPKCS11:
-		return openPKCS11Store(cfg)
+		return openPKCS11Store(ctx, cfg)
 	case BackendNSS:
-		return openNSSStore(cfg)
+		return openNSSStore(ctx, cfg)
 	}
 
 	if native := currentNativeBackend(); native != "" && cfg.Backend == native {
