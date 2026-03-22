@@ -238,6 +238,9 @@ func (id *macIdentity) Signer() (crypto.Signer, error) {
 		if status := C.SecIdentityCopyPrivateKey(id.ref, &keyRef); status != C.errSecSuccess {
 			return nil, fmt.Errorf("SecIdentityCopyPrivateKey failed: OSStatus %d", int32(status))
 		}
+		if keyRef == 0 {
+			return nil, errors.New("SecIdentityCopyPrivateKey returned nil private key")
+		}
 		id.keyRef = keyRef
 	}
 
@@ -249,6 +252,9 @@ func (id *macIdentity) Signer() (crypto.Signer, error) {
 	// Retain the key so the signer owns its own reference, independent of
 	// the identity's lifecycle. The caller may Close() the identity while
 	// the signer is still in use (e.g. for TLS handshakes).
+	if id.keyRef == 0 {
+		return nil, errors.New("mac identity has no private key")
+	}
 	C.CFRetain(C.CFTypeRef(id.keyRef))
 
 	signer := &macSigner{
@@ -294,6 +300,9 @@ func (s *macSigner) Public() crypto.PublicKey {
 }
 
 func (s *macSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if s.keyRef == 0 {
+		return nil, ErrClosed
+	}
 	algo, err := s.algorithm(opts)
 	if err != nil {
 		return nil, err

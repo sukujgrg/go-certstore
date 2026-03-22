@@ -257,8 +257,12 @@ func clientAuthSummary(cert *x509.Certificate) string {
 			values = append(values, "server-auth")
 		case x509.ExtKeyUsageCodeSigning:
 			values = append(values, "code-signing")
+		case x509.ExtKeyUsageEmailProtection:
+			values = append(values, "email-protection")
+		case x509.ExtKeyUsageTimeStamping:
+			values = append(values, "time-stamping")
 		default:
-			values = append(values, eku.String())
+			values = append(values, fmt.Sprintf("eku-%d", int(eku)))
 		}
 	}
 	return strings.Join(values, ", ")

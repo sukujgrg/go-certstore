@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Linux integration test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y softhsm2 libnss3-tools
+
+      - name: Set up MinGW for Windows cgo
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc
+
+      - name: Add MinGW to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "C:\msys64\mingw64\bin" >> $env:GITHUB_PATH
+
+      - name: Run tests
+        if: runner.os != 'Windows'
+        env:
+          CERTSTORE_RUN_NATIVE_TESTS: ${{ runner.os == 'macOS' && '1' || '' }}
+        run: go test ./...
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        env:
+          CC: gcc
+          CERTSTORE_RUN_NATIVE_TESTS: "1"
+        run: go test ./...
+
+      - name: Build examples
+        if: runner.os != 'Windows'
+        run: go build ./examples/list-identities ./examples/tls-client ./examples/export-cert
+
+      - name: Build examples (Windows)
+        if: runner.os == 'Windows'
+        env:
+          CC: gcc
+        run: go build ./examples/list-identities ./examples/tls-client ./examples/export-cert

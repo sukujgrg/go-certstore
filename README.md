@@ -4,13 +4,13 @@ A Go library for accessing client certificate identities across native OS stores
 
 ## Platform support
 
-| Platform | Backend | Status | CGo required |
-|----------|---------|--------|:------------:|
-| macOS    | Keychain (Security.framework) | Implemented | Yes |
-| Windows  | CertStore (CNG / CryptoAPI)   | Implemented | Yes |
-| Linux    | Native system store           | Not supported | No |
-| Any      | PKCS#11 (explicit module path) | Implemented | Yes |
-| Any      | NSS (explicit softokn3 module path + profile dir) | Implemented | Yes |
+| Backend | Host OS | Status | CGo required |
+|---------|---------|--------|:------------:|
+| Keychain (Security.framework) | macOS | Implemented | Yes |
+| CertStore (CNG / CryptoAPI) | Windows | Implemented | Yes |
+| Native system store | Linux | Not supported | No |
+| PKCS#11 (explicit module path) | Cross-platform | Implemented | Yes |
+| NSS (explicit softokn3 module path + profile dir) | Cross-platform | Implemented | Yes |
 
 ## Install
 
@@ -217,6 +217,14 @@ The most useful exported errors to branch on are:
 Runnable programs are available under `examples/`.
 
 See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for runnable commands and PKCS#11/NSS flag usage.
+
+## Local checks
+
+- `make check` runs the library test suite on the current host
+- `make check-macos` runs `make check` and then the macOS native integration test
+- `make check-linux` runs the Linux preflight in Docker and is mainly useful on non-Linux hosts
+
+On Linux, prefer `make check` directly unless you specifically want Docker-based parity with the CI environment.
 
 ## Credits
 

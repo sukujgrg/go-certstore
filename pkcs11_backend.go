@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"runtime"
 	"strings"
 	"sync"
@@ -774,21 +773,6 @@ func hashOID(hash crypto.Hash) (asn1.ObjectIdentifier, error) {
 	default:
 		return nil, ErrUnsupportedHash
 	}
-}
-
-func ecdsaRawToASN1(raw []byte, pub *ecdsa.PublicKey) ([]byte, error) {
-	keySize := (pub.Curve.Params().BitSize + 7) / 8
-	if len(raw) != 2*keySize {
-		return nil, fmt.Errorf("invalid ECDSA signature length: got %d, want %d", len(raw), 2*keySize)
-	}
-
-	type ecdsaSig struct {
-		R, S *big.Int
-	}
-
-	r := new(big.Int).SetBytes(raw[:keySize])
-	s := new(big.Int).SetBytes(raw[keySize:])
-	return asn1.Marshal(ecdsaSig{R: r, S: s})
 }
 
 func isPKCS11Error(err error, code uint) bool {

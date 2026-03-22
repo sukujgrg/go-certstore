@@ -14,3 +14,9 @@
 !examples/*/
 !examples/*/*.go
 !Makefile
+!.golangci.yml
+!scripts/
+!scripts/*.sh
+!.github/
+!.github/workflows/
+!.github/workflows/ci.yml

@@ -44,11 +44,9 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"runtime"
 	"unsafe"
 )
@@ -442,24 +440,6 @@ func (s *winSigner) signCryptoAPI(digest []byte, opts crypto.SignerOpts) ([]byte
 	}
 
 	return sig, nil
-}
-
-// ecdsaRawToASN1 converts a CNG raw ECDSA signature (r || s) to ASN.1 DER
-// encoding as expected by Go's crypto/ecdsa verification.
-func ecdsaRawToASN1(raw []byte, pub *ecdsa.PublicKey) ([]byte, error) {
-	keySize := (pub.Curve.Params().BitSize + 7) / 8
-	if len(raw) != 2*keySize {
-		return nil, fmt.Errorf("invalid ECDSA signature length: got %d, want %d", len(raw), 2*keySize)
-	}
-
-	type ecdsaSig struct {
-		R, S *big.Int
-	}
-
-	r := new(big.Int).SetBytes(raw[:keySize])
-	s := new(big.Int).SetBytes(raw[keySize:])
-
-	return asn1.Marshal(ecdsaSig{R: r, S: s})
 }
 
 // ncryptAlgorithmID maps a crypto.Hash to the CNG algorithm identifier string.

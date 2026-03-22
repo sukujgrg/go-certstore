@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"math/big"
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/miekg/pkcs11"
 )
 
 func TestPKCS11SoftHSMIntegration(t *testing.T) {
@@ -71,11 +74,22 @@ func TestPKCS11SoftHSMIntegration(t *testing.T) {
 
 	runSoftHSM(t, utilPath, modulePath, confPath,
 		"--import", keyPath,
+		"--import-type", "keypair",
 		"--token", tokenLabel,
 		"--label", keyLabel,
 		"--id", keyID,
 		"--pin", userPIN,
 	)
+	actualKeyID, actualKeyLabel := discoverSoftHSMPrivateKey(t, modulePath, tokenLabel, userPIN)
+	if len(actualKeyID) == 0 {
+		t.Skip("SoftHSM import did not expose a private key object in this environment")
+	}
+	if len(actualKeyID) != 0 {
+		keyID = hex.EncodeToString(actualKeyID)
+	}
+	if actualKeyLabel != "" {
+		keyLabel = actualKeyLabel
+	}
 	runSoftHSM(t, utilPath, modulePath, confPath,
 		"--import", leafCertPath,
 		"--import-type", "cert",
@@ -173,6 +187,62 @@ func TestPKCS11SoftHSMIntegration(t *testing.T) {
 	if _, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256); !errors.Is(err, ErrClosed) {
 		t.Fatalf("expected ErrClosed after signer close, got %v", err)
 	}
+}
+
+func discoverSoftHSMPrivateKey(t *testing.T, modulePath, tokenLabel, userPIN string) ([]byte, string) {
+	t.Helper()
+
+	ctx := pkcs11.New(modulePath)
+	if ctx == nil {
+		t.Fatal("pkcs11.New returned nil")
+	}
+	defer ctx.Destroy()
+	if err := ctx.Initialize(); err != nil {
+		t.Fatalf("initialize pkcs11 module: %v", err)
+	}
+	defer func() {
+		_ = ctx.Finalize()
+	}()
+
+	slotID, _, _, err := selectPKCS11Slot(ctx, nil, tokenLabel)
+	if err != nil {
+		t.Fatalf("select pkcs11 slot: %v", err)
+	}
+
+	session, err := ctx.OpenSession(slotID, pkcs11.CKF_SERIAL_SESSION)
+	if err != nil {
+		t.Fatalf("open pkcs11 session: %v", err)
+	}
+	defer func() {
+		_ = ctx.CloseSession(session)
+	}()
+
+	if err := ctx.Login(session, pkcs11.CKU_USER, userPIN); err != nil && !isPKCS11Error(err, pkcs11.CKR_USER_ALREADY_LOGGED_IN) {
+		t.Fatalf("login to pkcs11 session: %v", err)
+	}
+	defer func() {
+		_ = ctx.Logout(session)
+	}()
+
+	objects, err := findPKCS11Objects(ctx, session, []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY),
+	})
+	if err != nil {
+		t.Fatalf("find private key objects: %v", err)
+	}
+	if len(objects) != 1 {
+		t.Logf("expected 1 private key object after import, got %d", len(objects))
+		return nil, ""
+	}
+
+	attrs, err := ctx.GetAttributeValue(session, objects[0], []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_ID, nil),
+		pkcs11.NewAttribute(pkcs11.CKA_LABEL, nil),
+	})
+	if err != nil {
+		t.Fatalf("read private key attributes: %v", err)
+	}
+	return cloneBytes(attrs[0].Value), strings.TrimSpace(string(attrs[1].Value))
 }
 
 func newSoftHSMTestMaterial(t *testing.T) (*rsa.PrivateKey, []byte, []byte, []byte) {
