@@ -1,6 +1,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -72,7 +73,7 @@ func TestFindIdentity(t *testing.T) {
 		},
 	}
 
-	ident, err := FindIdentity(store, FindIdentityOptions{
+	ident, err := FindIdentity(context.Background(), store, FindIdentityOptions{
 		Backend:              BackendPKCS11,
 		ValidOnly:            true,
 		PreferHardwareBacked: true,
@@ -119,7 +120,7 @@ func TestFindIdentitiesFiltersMetadata(t *testing.T) {
 		},
 	}
 
-	idents, err := FindIdentities(store, FindIdentityOptions{
+	idents, err := FindIdentities(context.Background(), store, FindIdentityOptions{
 		Label:                 "wanted",
 		RequireHardwareBacked: true,
 	})

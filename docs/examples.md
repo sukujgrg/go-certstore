@@ -16,7 +16,7 @@ are required.
   - Prints richer selection and rejection diagnostics
   - Supports PKCS#11 and NSS options through flags/environment
   - This example does not open a network connection
-  - It simulates local certificate selection only, so you can see which identity would be chosen before wiring `GetClientCertificateFunc` into a real `tls.Config`
+  - It simulates local certificate selection only, so you can see which identity would be chosen before wiring `GetClientCertificateFunc(ctx, ...)` into a real `tls.Config`
 - `examples/export-cert`
   - Select one matching identity and write the leaf certificate or full chain as PEM
   - Supports `-subject`, `-issuer`, `-chain`, and `-out`

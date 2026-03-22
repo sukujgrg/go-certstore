@@ -1,6 +1,7 @@
 package certstore_test
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/sha256"
@@ -18,7 +19,7 @@ import (
 // certificate by CN and issuer, then use it for mTLS.
 func Example_mTLS() {
 	tlsConfig := &tls.Config{
-		GetClientCertificate: certstore.GetClientCertificateFunc(nil, certstore.SelectOptions{
+		GetClientCertificate: certstore.GetClientCertificateFunc(context.Background(), nil, certstore.SelectOptions{
 			SubjectCN:            "myhost.example.com",
 			IssuerCN:             "My Issuing CA",
 			RequireClientAuthEKU: true,
@@ -30,7 +31,7 @@ func Example_mTLS() {
 // getCertificate returns a callback suitable for tls.Config.GetClientCertificate.
 // It wraps the higher-level helper for callers who prefer a local function.
 func getCertificate(cn, issuer string) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-	return certstore.GetClientCertificateFunc(nil, certstore.SelectOptions{
+	return certstore.GetClientCertificateFunc(context.Background(), nil, certstore.SelectOptions{
 		SubjectCN:            cn,
 		IssuerCN:             issuer,
 		RequireClientAuthEKU: true,
@@ -39,13 +40,13 @@ func getCertificate(cn, issuer string) func(*tls.CertificateRequestInfo) (*tls.C
 
 // Example_listCertificates shows how to enumerate all identities in the store.
 func Example_listCertificates() {
-	store, err := certstore.Open()
+	store, err := certstore.Open(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer store.Close()
 
-	idents, err := store.Identities()
+	idents, err := store.Identities(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func Example_listCertificates() {
 	for _, ident := range idents {
 		defer ident.Close()
 
-		cert, err := ident.Certificate()
+		cert, err := ident.Certificate(context.Background())
 		if err != nil {
 			continue
 		}
@@ -69,7 +70,7 @@ func Example_listCertificates() {
 // specific certificates by CN, issuer, or expiry.
 func Example_filterIdentities() {
 	// Find all valid certs issued by a specific CA
-	idents, err := certstore.FilterIdentities(func(cert *x509.Certificate) bool {
+	idents, err := certstore.FilterIdentities(context.Background(), func(cert *x509.Certificate) bool {
 		return cert.Issuer.CommonName == "My Issuing CA" &&
 			time.Now().Before(cert.NotAfter)
 	})
@@ -79,7 +80,7 @@ func Example_filterIdentities() {
 
 	for _, ident := range idents {
 		defer ident.Close()
-		cert, _ := ident.Certificate()
+		cert, _ := ident.Certificate(context.Background())
 		days := int(time.Until(cert.NotAfter).Hours() / 24)
 		fmt.Printf("CN=%s  Expires in %d days\n", cert.Subject.CommonName, days)
 	}
@@ -87,7 +88,7 @@ func Example_filterIdentities() {
 
 // Example_filterByCN demonstrates finding a certificate by subject CN.
 func Example_filterByCN() {
-	idents, err := certstore.FilterIdentities(func(cert *x509.Certificate) bool {
+	idents, err := certstore.FilterIdentities(context.Background(), func(cert *x509.Certificate) bool {
 		return cert.Subject.CommonName == "myhost.example.com"
 	})
 	if err != nil {
@@ -96,7 +97,7 @@ func Example_filterByCN() {
 
 	for _, ident := range idents {
 		defer ident.Close()
-		cert, _ := ident.Certificate()
+		cert, _ := ident.Certificate(context.Background())
 
 		fmt.Printf("Subject:  CN=%s\n", cert.Subject.CommonName)
 		fmt.Printf("Issuer:   CN=%s\n", cert.Issuer.CommonName)
@@ -107,7 +108,7 @@ func Example_filterByCN() {
 		)
 
 		// Check if private key is accessible
-		_, err := ident.Signer()
+		_, err := ident.Signer(context.Background())
 		if err != nil {
 			fmt.Printf("Key:      INACCESSIBLE (%v)\n", err)
 		} else {
@@ -118,7 +119,7 @@ func Example_filterByCN() {
 
 // Example_filterSubstring demonstrates substring matching on CN.
 func Example_filterSubstring() {
-	idents, err := certstore.FilterIdentities(func(cert *x509.Certificate) bool {
+	idents, err := certstore.FilterIdentities(context.Background(), func(cert *x509.Certificate) bool {
 		return strings.Contains(cert.Subject.CommonName, "example.com") &&
 			time.Now().Before(cert.NotAfter)
 	})
@@ -135,13 +136,13 @@ func Example_filterSubstring() {
 // Example_signerCleanup demonstrates obtaining a signer directly and releasing
 // its resources explicitly when done.
 func Example_signerCleanup() {
-	store, err := certstore.Open()
+	store, err := certstore.Open(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer store.Close()
 
-	ident, err := certstore.FindIdentity(store, certstore.FindIdentityOptions{
+	ident, err := certstore.FindIdentity(context.Background(), store, certstore.FindIdentityOptions{
 		SubjectCN: "myhost.example.com",
 		ValidOnly: true,
 	})
@@ -150,7 +151,7 @@ func Example_signerCleanup() {
 	}
 	defer ident.Close()
 
-	signer, err := ident.Signer()
+	signer, err := ident.Signer(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -18,7 +18,8 @@ Typical examples:
 The backend requires an explicit PKCS#11 module path:
 
 ```go
-store, err := certstore.Open(
+ctx := context.Background()
+store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module("/path/to/pkcs11/module"),
 )
@@ -32,7 +33,8 @@ For YubiKey PIV on systems using OpenSC, the PKCS#11 module is typically
 Example:
 
 ```go
-store, err := certstore.Open(
+ctx := context.Background()
+store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module("/usr/local/lib/opensc-pkcs11.so"),
     certstore.WithPKCS11TokenLabel("YubiKey PIV"),
@@ -45,7 +47,7 @@ if err != nil {
 }
 defer store.Close()
 
-ident, err := certstore.FindIdentity(store, certstore.FindIdentityOptions{
+ident, err := certstore.FindIdentity(ctx, store, certstore.FindIdentityOptions{
     Backend:               certstore.BackendPKCS11,
     ValidOnly:             true,
     RequireHardwareBacked: true,
@@ -78,7 +80,7 @@ Some backends keep native key handles alive while the signer exists. When you
 obtain a signer directly, close it explicitly when you are done:
 
 ```go
-signer, err := ident.Signer()
+signer, err := ident.Signer(ctx)
 if err != nil {
     return err
 }
@@ -232,7 +234,8 @@ At this point you have:
 ### Open the token from Go
 
 ```go
-store, err := certstore.Open(
+ctx := context.Background()
+store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module(os.Getenv("SOFTHSM2_MODULE")),
     certstore.WithPKCS11TokenLabel("go-certstore-test"),
@@ -257,6 +260,7 @@ For TLS client authentication, prefer the helper:
 ```go
 tlsConfig := &tls.Config{
     GetClientCertificate: certstore.GetClientCertificateFunc(
+        ctx,
         []certstore.Option{
             certstore.WithBackend(certstore.BackendPKCS11),
             certstore.WithPKCS11Module(os.Getenv("SOFTHSM2_MODULE")),

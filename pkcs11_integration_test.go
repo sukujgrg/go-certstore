@@ -3,6 +3,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -107,7 +108,7 @@ func TestPKCS11SoftHSMIntegration(t *testing.T) {
 		"--pin", userPIN,
 	)
 
-	store, err := Open(
+	store, err := Open(context.Background(),
 		WithBackend(BackendPKCS11),
 		WithPKCS11Module(modulePath),
 		WithPKCS11TokenLabel(tokenLabel),
@@ -120,7 +121,7 @@ func TestPKCS11SoftHSMIntegration(t *testing.T) {
 	}
 	defer store.Close()
 
-	idents, err := store.Identities()
+	idents, err := store.Identities(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,14 +130,14 @@ func TestPKCS11SoftHSMIntegration(t *testing.T) {
 	}
 	defer idents[0].Close()
 
-	cert, err := idents[0].Certificate()
+	cert, err := idents[0].Certificate(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cert.Subject.CommonName != "pkcs11-client.example.com" {
 		t.Fatalf("unexpected certificate CN %q", cert.Subject.CommonName)
 	}
-	chain, err := idents[0].CertificateChain()
+	chain, err := idents[0].CertificateChain(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +169,7 @@ func TestPKCS11SoftHSMIntegration(t *testing.T) {
 		t.Fatalf("unexpected module path %q", p11Info.ModulePath())
 	}
 
-	signer, err := idents[0].Signer()
+	signer, err := idents[0].Signer(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

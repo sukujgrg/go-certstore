@@ -3,6 +3,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -55,7 +56,7 @@ func TestNSSIntegration(t *testing.T) {
 	)
 	runNSSCommand(t, "", pk12utilPath, "-i", p12Path, "-d", "sql:"+profileDir, "-W", "")
 
-	store, err := Open(
+	store, err := Open(context.Background(),
 		WithBackend(BackendNSS),
 		WithNSSModule(modulePath),
 		WithNSSProfileDir(profileDir),
@@ -65,7 +66,7 @@ func TestNSSIntegration(t *testing.T) {
 	}
 	defer store.Close()
 
-	idents, err := store.Identities()
+	idents, err := store.Identities(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,14 +75,14 @@ func TestNSSIntegration(t *testing.T) {
 	}
 	defer idents[0].Close()
 
-	cert, err := idents[0].Certificate()
+	cert, err := idents[0].Certificate(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cert.Subject.CommonName != "nss-client.example.com" {
 		t.Fatalf("unexpected certificate CN %q", cert.Subject.CommonName)
 	}
-	chain, err := idents[0].CertificateChain()
+	chain, err := idents[0].CertificateChain(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,7 @@ func TestNSSIntegration(t *testing.T) {
 		t.Fatalf("unexpected backend %q", info.Backend())
 	}
 
-	signer, err := idents[0].Signer()
+	signer, err := idents[0].Signer(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"strings"
@@ -8,7 +9,7 @@ import (
 )
 
 func TestGetClientCertificateFuncOpenError(t *testing.T) {
-	getClientCertificate := GetClientCertificateFunc([]Option{
+	getClientCertificate := GetClientCertificateFunc(context.Background(), []Option{
 		WithBackend(BackendPKCS11),
 	}, SelectOptions{})
 
@@ -44,7 +45,7 @@ func TestSupportedSignatureAlgorithmsForPublicKey(t *testing.T) {
 
 func TestFindTLSCertificateIdentityNotFound(t *testing.T) {
 	store := &testStore{}
-	_, err := FindTLSCertificate(store, SelectOptions{})
+	_, err := FindTLSCertificate(context.Background(), store, SelectOptions{})
 	if !errors.Is(err, ErrIdentityNotFound) {
 		t.Fatalf("expected ErrIdentityNotFound, got %v", err)
 	}

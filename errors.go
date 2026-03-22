@@ -8,7 +8,8 @@ var (
 	ErrUnsupportedHash = errors.New("unsupported hash algorithm")
 
 	// ErrUnsupportedBackend is returned when the selected backend is not
-	// supported on the current platform or not implemented yet.
+	// supported on the current platform or otherwise unavailable for the
+	// selected configuration.
 	ErrUnsupportedBackend = errors.New("unsupported backend")
 
 	// ErrIdentityNotFound is returned when no matching identity can be found.

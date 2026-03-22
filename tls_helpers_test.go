@@ -1,6 +1,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -18,8 +19,8 @@ type testStore struct {
 	idents []Identity
 }
 
-func (s *testStore) Identities() ([]Identity, error) { return s.idents, nil }
-func (s *testStore) Close()                          {}
+func (s *testStore) Identities(context.Context) ([]Identity, error) { return s.idents, nil }
+func (s *testStore) Close()                                         {}
 
 type testIdentity struct {
 	cert      *x509.Certificate
@@ -29,14 +30,14 @@ type testIdentity struct {
 	signerErr error
 }
 
-func (i *testIdentity) Certificate() (*x509.Certificate, error) { return i.cert, nil }
-func (i *testIdentity) CertificateChain() ([]*x509.Certificate, error) {
+func (i *testIdentity) Certificate(context.Context) (*x509.Certificate, error) { return i.cert, nil }
+func (i *testIdentity) CertificateChain(context.Context) ([]*x509.Certificate, error) {
 	if len(i.chain) == 0 {
 		return []*x509.Certificate{i.cert}, nil
 	}
 	return i.chain, nil
 }
-func (i *testIdentity) Signer() (crypto.Signer, error) {
+func (i *testIdentity) Signer(context.Context) (crypto.Signer, error) {
 	if i.signerErr != nil {
 		return nil, i.signerErr
 	}
@@ -89,7 +90,7 @@ func TestFindTLSCertificateBuildsChain(t *testing.T) {
 		},
 	}
 
-	got, err := FindTLSCertificate(store, SelectOptions{
+	got, err := FindTLSCertificate(context.Background(), store, SelectOptions{
 		SubjectCN:            leafCert.Subject.CommonName,
 		IssuerCN:             caCert.Subject.CommonName,
 		RequireClientAuthEKU: true,
@@ -124,7 +125,7 @@ func TestFindTLSCertificatePrefersHardwareBacked(t *testing.T) {
 		},
 	}
 
-	got, err := FindTLSCertificate(store, SelectOptions{PreferHardwareBacked: true})
+	got, err := FindTLSCertificate(context.Background(), store, SelectOptions{PreferHardwareBacked: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestFindTLSCertificateRespectsCertificateRequest(t *testing.T) {
 		},
 	}
 
-	got, err := findTLSCertificate(store, SelectOptions{}, &tls.CertificateRequestInfo{
+	got, err := findTLSCertificate(context.Background(), store, SelectOptions{}, &tls.CertificateRequestInfo{
 		Version:          tls.VersionTLS13,
 		SignatureSchemes: []tls.SignatureScheme{tls.PSSWithSHA256, tls.ECDSAWithP256AndSHA256},
 		AcceptableCAs:    [][]byte{caB.RawSubject},
@@ -164,7 +165,7 @@ func TestFindTLSCertificateRequiresClientAuthEKU(t *testing.T) {
 		},
 	}
 
-	if _, err := FindTLSCertificate(store, SelectOptions{RequireClientAuthEKU: true}); err == nil {
+	if _, err := FindTLSCertificate(context.Background(), store, SelectOptions{RequireClientAuthEKU: true}); err == nil {
 		t.Fatal("expected non-client-auth certificate to be rejected")
 	}
 }

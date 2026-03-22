@@ -4,6 +4,7 @@ package certstore
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -45,7 +46,12 @@ type pkcs11Store struct {
 	once   sync.Once
 }
 
-func (s *pkcs11Store) Identities() ([]Identity, error) {
+func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	session, err := s.module.openSession()
 	if err != nil {
 		return nil, fmt.Errorf("open %s session: %w", s.module.backend, err)
@@ -65,6 +71,9 @@ func (s *pkcs11Store) Identities() ([]Identity, error) {
 	idents := make([]Identity, 0, len(certObjects))
 	loggedIn := false
 	for _, certObject := range certObjects {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		hasKey, err := s.module.hasPrivateKey(session, certObject.keyID, certObject.label)
 		if err != nil && isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
 			if !loggedIn {
@@ -354,7 +363,11 @@ type pkcs11Identity struct {
 	closeOnce sync.Once
 }
 
-func (id *pkcs11Identity) Certificate() (*x509.Certificate, error) {
+func (id *pkcs11Identity) Certificate(ctx context.Context) (*x509.Certificate, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	id.once.Do(func() {
 		id.cert, id.certErr = x509.ParseCertificate(id.certDER)
 		if id.certErr != nil {
@@ -364,15 +377,20 @@ func (id *pkcs11Identity) Certificate() (*x509.Certificate, error) {
 	return id.cert, id.certErr
 }
 
-func (id *pkcs11Identity) CertificateChain() ([]*x509.Certificate, error) {
-	cert, err := id.Certificate()
+func (id *pkcs11Identity) CertificateChain(ctx context.Context) ([]*x509.Certificate, error) {
+	cert, err := id.Certificate(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return buildCertificateChain(cert, id.chainPool), nil
 }
 
-func (id *pkcs11Identity) Signer() (crypto.Signer, error) {
+func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	moduleRef, err := id.module.retain()
 	if err != nil {
 		return nil, fmt.Errorf("retain %s module: %w", id.module.backend, err)
@@ -407,7 +425,7 @@ func (id *pkcs11Identity) Signer() (crypto.Signer, error) {
 		}
 	}
 
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(ctx)
 	if err != nil {
 		moduleRef.closeSession(session)
 		moduleRef.release()
@@ -470,7 +488,7 @@ func (id *pkcs11Identity) Backend() Backend {
 }
 
 func (id *pkcs11Identity) KeyType() string {
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(context.Background())
 	if err != nil {
 		return ""
 	}

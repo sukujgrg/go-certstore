@@ -1,6 +1,6 @@
 # go-certstore
 
-A Go library for accessing client certificate identities across native OS stores and token-backed backends.
+A Go library for accessing X.509 certificate identities across native OS stores and token/database-backed backends.
 
 ## Platform support
 
@@ -23,13 +23,15 @@ go get github.com/sukujgrg/go-certstore@latest
 Default backend for the current platform:
 
 ```go
-store, err := certstore.Open()
+ctx := context.Background()
+store, err := certstore.Open(ctx)
 ```
 
 Explicit PKCS#11 backend:
 
 ```go
-store, err := certstore.Open(
+ctx := context.Background()
+store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module("/path/to/pkcs11/module"),
     certstore.WithPKCS11TokenLabel("YubiKey PIV"),
@@ -42,7 +44,8 @@ store, err := certstore.Open(
 Explicit NSS backend:
 
 ```go
-store, err := certstore.Open(
+ctx := context.Background()
+store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendNSS),
     certstore.WithNSSModule("/path/to/libsoftokn3.so"),
     certstore.WithNSSProfileDir("/path/to/nssdb"),
@@ -55,8 +58,9 @@ store, err := certstore.Open(
 TLS client certificate helper:
 
 ```go
+ctx := context.Background()
 tlsConfig := &tls.Config{
-    GetClientCertificate: certstore.GetClientCertificateFunc(nil, certstore.SelectOptions{
+    GetClientCertificate: certstore.GetClientCertificateFunc(ctx, nil, certstore.SelectOptions{
         SubjectCN:            "myhost.example.com",
         IssuerCN:             "My Issuing CA",
         RequireClientAuthEKU: true,
@@ -75,17 +79,17 @@ tlsConfig := &tls.Config{
 ## Core API
 
 ```go
-func Open(opts ...Option) (Store, error)
+func Open(ctx context.Context, opts ...Option) (Store, error)
 
 type Store interface {
-    Identities() ([]Identity, error)
+    Identities(ctx context.Context) ([]Identity, error)
     Close()
 }
 
 type Identity interface {
-    Certificate() (*x509.Certificate, error)
-    CertificateChain() ([]*x509.Certificate, error)
-    Signer() (crypto.Signer, error)
+    Certificate(ctx context.Context) (*x509.Certificate, error)
+    CertificateChain(ctx context.Context) ([]*x509.Certificate, error)
+    Signer(ctx context.Context) (crypto.Signer, error)
     Close()
 }
 ```
@@ -97,10 +101,10 @@ Important helpers:
 - `GetClientCertificateFunc`
 - `CloseSigner`
 
-Use `CloseSigner` when you obtain a signer directly from `Identity.Signer()`:
+Use `CloseSigner` when you obtain a signer directly from `Identity.Signer(ctx)`:
 
 ```go
-signer, err := ident.Signer()
+signer, err := ident.Signer(ctx)
 if err != nil {
     return err
 }
@@ -154,9 +158,9 @@ configuration instead of embedding discovery or prompting policy in the library.
 
 ## Backend Resolution
 
-`Open()` with no options uses the native backend for the current platform.
+`Open(context.Background())` with no options uses the native backend for the current platform.
 
-`Open(WithBackend(BackendAuto), ...)` follows these rules:
+`Open(context.Background(), WithBackend(BackendAuto), ...)` follows these rules:
 
 - macOS and Windows use the native backend by default
 - PKCS#11 is selected when PKCS#11 options are supplied

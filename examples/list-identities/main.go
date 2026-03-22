@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -59,7 +60,8 @@ func main() {
 		}))
 	}
 
-	store, err := certstore.Open(openOpts...)
+	ctx := context.Background()
+	store, err := certstore.Open(ctx, openOpts...)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -76,7 +78,7 @@ func main() {
 		findOpts.Backend = certstore.BackendNSS
 	}
 
-	idents, err := certstore.FindIdentities(store, findOpts)
+	idents, err := certstore.FindIdentities(ctx, store, findOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -87,7 +89,7 @@ func main() {
 	}()
 
 	for _, ident := range idents {
-		cert, err := ident.Certificate()
+		cert, err := ident.Certificate(ctx)
 		if err != nil {
 			continue
 		}

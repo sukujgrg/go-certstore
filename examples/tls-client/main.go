@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"crypto/x509"
 	"flag"
 	"fmt"
@@ -80,14 +81,15 @@ func main() {
 		os.Exit(2)
 	}
 
-	store, err := certstore.Open(openOpts...)
+	ctx := context.Background()
+	store, err := certstore.Open(ctx, openOpts...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	defer store.Close()
 
-	cert, err := certstore.FindTLSCertificate(store, selectOpts)
+	cert, err := certstore.FindTLSCertificate(ctx, store, selectOpts)
 	if err != nil {
 		if err == certstore.ErrIdentityNotFound {
 			explainIdentityRejections(openOpts, selectOpts)
@@ -116,18 +118,19 @@ func main() {
 		}
 		fmt.Printf("    [%d] %s -> %s\n", i, parsed.Subject.CommonName, parsed.Issuer.CommonName)
 	}
-	fmt.Println("Use certstore.GetClientCertificateFunc(...) in a real tls.Config during an actual handshake.")
+	fmt.Println("Use certstore.GetClientCertificateFunc(ctx, ...) in a real tls.Config during an actual handshake.")
 }
 
 func explainIdentityRejections(openOpts []certstore.Option, selectOpts certstore.SelectOptions) {
-	store, err := certstore.Open(openOpts...)
+	ctx := context.Background()
+	store, err := certstore.Open(ctx, openOpts...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not inspect identities after selection failure: %v\n", err)
 		return
 	}
 	defer store.Close()
 
-	idents, err := store.Identities()
+	idents, err := store.Identities(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not enumerate identities after selection failure: %v\n", err)
 		return
@@ -145,7 +148,7 @@ func explainIdentityRejections(openOpts []certstore.Option, selectOpts certstore
 }
 
 func describeIdentity(out *os.File, ident certstore.Identity, selectOpts certstore.SelectOptions) {
-	cert, err := ident.Certificate()
+	cert, err := ident.Certificate(context.Background())
 	if err != nil {
 		fmt.Fprintf(out, "- identity rejected: certificate unavailable: %v\n", err)
 		return
@@ -222,7 +225,7 @@ func rejectionReasons(ident certstore.Identity, cert *x509.Certificate, selectOp
 		reasons = append(reasons, "certificate does not allow TLS client authentication")
 	}
 
-	signer, err := ident.Signer()
+	signer, err := ident.Signer(context.Background())
 	if err != nil {
 		reasons = append(reasons, fmt.Sprintf("private key signer unavailable: %v", err))
 	} else {

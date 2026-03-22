@@ -1,10 +1,14 @@
 package certstore
 
 import (
+	"context"
 	"fmt"
 )
 
 // Open opens the configured identity backend.
+//
+// The context controls cancellation while the library resolves and initializes
+// the requested backend. Passing nil is treated as context.Background().
 //
 // With no options, Open preserves the current platform-default behavior by
 // opening the native backend for the current OS.
@@ -13,10 +17,15 @@ import (
 //   - native macOS and Windows backends are used by default
 //   - PKCS#11 is selected instead when PKCS#11 options are supplied
 //   - NSS is selected instead when an NSS module path and profile are supplied
-//   - p11-kit discovery currently returns ErrUnsupportedBackend
+//   - p11-kit discovery is unsupported and returns ErrUnsupportedBackend
 //
 // Use WithBackend to force a specific backend.
-func Open(opts ...Option) (Store, error) {
+func Open(ctx context.Context, opts ...Option) (Store, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	cfg := Options{Backend: BackendAuto}
 	for _, opt := range opts {
 		if opt != nil {
@@ -50,7 +59,7 @@ func Open(opts ...Option) (Store, error) {
 			return openNSSStore(cfg)
 		}
 		if cfg.UseP11Kit {
-			return nil, fmt.Errorf("%w: p11-kit discovery is not implemented yet", ErrUnsupportedBackend)
+			return nil, fmt.Errorf("%w: p11-kit discovery is unsupported", ErrUnsupportedBackend)
 		}
 		return openNativeStore()
 	case BackendPKCS11:
@@ -88,7 +97,7 @@ func validateOptions(cfg Options) error {
 			return fmt.Errorf("%w: PKCS#11 and NSS options cannot be combined under backend %q", ErrUnsupportedBackend, BackendAuto)
 		}
 		if cfg.UseP11Kit {
-			return fmt.Errorf("%w: p11-kit discovery is not implemented yet", ErrUnsupportedBackend)
+			return fmt.Errorf("%w: p11-kit discovery is unsupported", ErrUnsupportedBackend)
 		}
 		if hasPKCS11Config(cfg) && cfg.PKCS11Module == "" {
 			return fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)
@@ -103,7 +112,7 @@ func validateOptions(cfg Options) error {
 
 	if cfg.Backend == BackendPKCS11 {
 		if cfg.UseP11Kit {
-			return fmt.Errorf("%w: p11-kit discovery is not implemented yet", ErrUnsupportedBackend)
+			return fmt.Errorf("%w: p11-kit discovery is unsupported", ErrUnsupportedBackend)
 		}
 		if cfg.PKCS11Module == "" {
 			return fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)

@@ -1,6 +1,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto/x509"
 	"fmt"
 	"time"
@@ -39,16 +40,30 @@ type FindIdentityOptions struct {
 // metadata filters. Non-matching identities are closed before returning.
 //
 // It returns all matches. Use FindIdentity if you want a single best-ranked
-// identity instead.
-func FindIdentities(store Store, opts FindIdentityOptions) ([]Identity, error) {
-	idents, err := store.Identities()
+// identity instead. Passing nil is treated as context.Background().
+func FindIdentities(ctx context.Context, store Store, opts FindIdentityOptions) ([]Identity, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	idents, err := store.Identities(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list identities: %w", err)
 	}
 
 	var matched []Identity
 	for _, ident := range idents {
-		ok, err := matchesIdentity(ident, opts)
+		if err := ctx.Err(); err != nil {
+			for _, ident := range matched {
+				ident.Close()
+			}
+			for _, ident := range idents {
+				ident.Close()
+			}
+			return nil, err
+		}
+		ok, err := matchesIdentity(ctx, ident, opts)
 		if err != nil || !ok {
 			ident.Close()
 			continue
@@ -67,8 +82,10 @@ func FindIdentities(store Store, opts FindIdentityOptions) ([]Identity, error) {
 // to be hardware-backed above other matches when PreferHardwareBacked is set,
 // gives a smaller bonus to currently valid certificates, and also favors later
 // expiry. This is a scoring heuristic, not a strict lexicographic ordering.
-func FindIdentity(store Store, opts FindIdentityOptions) (Identity, error) {
-	idents, err := FindIdentities(store, opts)
+// Passing nil is treated as context.Background().
+func FindIdentity(ctx context.Context, store Store, opts FindIdentityOptions) (Identity, error) {
+	ctx = normalizeContext(ctx)
+	idents, err := FindIdentities(ctx, store, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +95,13 @@ func FindIdentity(store Store, opts FindIdentityOptions) (Identity, error) {
 		bestScore int
 	)
 	for _, ident := range idents {
-		cert, err := ident.Certificate()
+		if err := ctx.Err(); err != nil {
+			for _, ident := range idents {
+				ident.Close()
+			}
+			return nil, err
+		}
+		cert, err := ident.Certificate(ctx)
 		if err != nil {
 			ident.Close()
 			continue
@@ -100,8 +123,8 @@ func FindIdentity(store Store, opts FindIdentityOptions) (Identity, error) {
 	return best, nil
 }
 
-func matchesIdentity(ident Identity, opts FindIdentityOptions) (bool, error) {
-	cert, err := ident.Certificate()
+func matchesIdentity(ctx context.Context, ident Identity, opts FindIdentityOptions) (bool, error) {
+	cert, err := ident.Certificate(ctx)
 	if err != nil {
 		return false, err
 	}

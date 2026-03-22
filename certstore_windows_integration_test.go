@@ -3,6 +3,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -33,11 +34,11 @@ func TestWindowsCertStoreIntegration(t *testing.T) {
 	if err != nil {
 		t.Skipf("temporary certificate creation unavailable in this environment: %v", err)
 	}
-		if windowsThumbprintPattern.MatchString(thumbprint) {
-			t.Cleanup(func() {
-				_, _ = runWindowsCommandResult("", powershell,
-					"-NoProfile", "-NonInteractive", "-Command",
-					fmt.Sprintf(`$ErrorActionPreference = 'Stop'
+	if windowsThumbprintPattern.MatchString(thumbprint) {
+		t.Cleanup(func() {
+			_, _ = runWindowsCommandResult("", powershell,
+				"-NoProfile", "-NonInteractive", "-Command",
+				fmt.Sprintf(`$ErrorActionPreference = 'Stop'
 	Import-Module PKI -ErrorAction Stop
 if (-not (Get-PSDrive -Name Cert -ErrorAction SilentlyContinue)) {
 	New-PSDrive -Name Cert -PSProvider Certificate -Root '\' | Out-Null
@@ -47,13 +48,13 @@ Remove-Item -Path 'Cert:\CurrentUser\My\%s' -ErrorAction SilentlyContinue`, thum
 		})
 	}
 
-	store, err := Open()
+	store, err := Open(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 
-	ident, err := FindIdentity(store, FindIdentityOptions{
+	ident, err := FindIdentity(context.Background(), store, FindIdentityOptions{
 		Backend:   BackendWindows,
 		SubjectCN: testCN,
 		ValidOnly: true,
@@ -63,7 +64,7 @@ Remove-Item -Path 'Cert:\CurrentUser\My\%s' -ErrorAction SilentlyContinue`, thum
 	}
 	defer ident.Close()
 
-	cert, err := ident.Certificate()
+	cert, err := ident.Certificate(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ Remove-Item -Path 'Cert:\CurrentUser\My\%s' -ErrorAction SilentlyContinue`, thum
 		t.Fatalf("unexpected certificate CN %q", cert.Subject.CommonName)
 	}
 
-	signer, err := ident.Signer()
+	signer, err := ident.Signer(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

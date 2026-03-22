@@ -8,6 +8,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -34,7 +35,12 @@ func openNativeStore() (Store, error) {
 // macStore implements Store for macOS Keychain.
 type macStore struct{}
 
-func (s *macStore) Identities() ([]Identity, error) {
+func (s *macStore) Identities(ctx context.Context) ([]Identity, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	query := C.CFDictionaryCreateMutable(
 		C.kCFAllocatorDefault, 0,
 		&C.kCFTypeDictionaryKeyCallBacks,
@@ -63,6 +69,12 @@ func (s *macStore) Identities() ([]Identity, error) {
 	n := int(C.CFArrayGetCount(arr))
 	idents := make([]Identity, 0, n)
 	for i := 0; i < n; i++ {
+		if err := ctx.Err(); err != nil {
+			for _, ident := range idents {
+				ident.Close()
+			}
+			return nil, err
+		}
 		ref := C.SecIdentityRef(C.CFArrayGetValueAtIndex(arr, C.CFIndex(i)))
 		C.CFRetain(C.CFTypeRef(ref))
 		idents = append(idents, &macIdentity{ref: ref})
@@ -81,7 +93,7 @@ type macIdentity struct {
 }
 
 func (id *macIdentity) Label() string {
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(context.Background())
 	if err != nil {
 		return ""
 	}
@@ -93,7 +105,7 @@ func (id *macIdentity) Backend() Backend {
 }
 
 func (id *macIdentity) KeyType() string {
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(context.Background())
 	if err != nil {
 		return ""
 	}
@@ -117,14 +129,18 @@ func (id *macIdentity) LoginRequiredState() CapabilityState {
 }
 
 func (id *macIdentity) URI() string {
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(context.Background())
 	if err != nil {
 		return ""
 	}
 	return identityURIFromCert(BackendDarwin, cert)
 }
 
-func (id *macIdentity) Certificate() (*x509.Certificate, error) {
+func (id *macIdentity) Certificate(ctx context.Context) (*x509.Certificate, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if id.cert != nil {
 		return id.cert, nil
 	}
@@ -159,8 +175,13 @@ func (id *macIdentity) Certificate() (*x509.Certificate, error) {
 	return cert, nil
 }
 
-func (id *macIdentity) CertificateChain() ([]*x509.Certificate, error) {
-	cert, err := id.Certificate()
+func (id *macIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificate, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	cert, err := id.Certificate(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -204,6 +225,9 @@ func (id *macIdentity) CertificateChain() ([]*x509.Certificate, error) {
 	chain = append(chain, cert)
 
 	for i := 1; i < chainLen; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		chainCertRef := C.SecCertificateRef(C.CFArrayGetValueAtIndex(chainArray, C.CFIndex(i)))
 		if chainCertRef == 0 {
 			continue
@@ -231,7 +255,12 @@ func (id *macIdentity) CertificateChain() ([]*x509.Certificate, error) {
 	return chain, nil
 }
 
-func (id *macIdentity) Signer() (crypto.Signer, error) {
+func (id *macIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if id.keyRef == 0 {
 		var keyRef C.SecKeyRef
 		if status := C.SecIdentityCopyPrivateKey(id.ref, &keyRef); status != C.errSecSuccess {
@@ -243,7 +272,7 @@ func (id *macIdentity) Signer() (crypto.Signer, error) {
 		id.keyRef = keyRef
 	}
 
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(ctx)
 	if err != nil {
 		return nil, err
 	}

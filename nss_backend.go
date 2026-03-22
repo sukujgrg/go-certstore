@@ -8,6 +8,7 @@ package certstore
 import "C"
 
 import (
+	"context"
 	"crypto"
 	"crypto/x509"
 	"encoding/hex"
@@ -36,8 +37,8 @@ type nssStore struct {
 	profileSpec string
 }
 
-func (s *nssStore) Identities() ([]Identity, error) {
-	idents, err := s.store.Identities()
+func (s *nssStore) Identities(ctx context.Context) ([]Identity, error) {
+	idents, err := s.store.Identities(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list nss identities: %w", err)
 	}
@@ -68,16 +69,16 @@ type nssIdentity struct {
 	profileSpec string
 }
 
-func (id *nssIdentity) Certificate() (*x509.Certificate, error) {
-	return id.pkcs11Identity.Certificate()
+func (id *nssIdentity) Certificate(ctx context.Context) (*x509.Certificate, error) {
+	return id.pkcs11Identity.Certificate(ctx)
 }
 
-func (id *nssIdentity) CertificateChain() ([]*x509.Certificate, error) {
-	return id.pkcs11Identity.CertificateChain()
+func (id *nssIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificate, error) {
+	return id.pkcs11Identity.CertificateChain(ctx)
 }
 
-func (id *nssIdentity) Signer() (crypto.Signer, error) {
-	signer, err := id.pkcs11Identity.Signer()
+func (id *nssIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
+	signer, err := id.pkcs11Identity.Signer(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create nss signer: %w", err)
 	}
@@ -92,7 +93,7 @@ func (id *nssIdentity) Label() string {
 	if label := id.pkcs11Identity.Label(); label != "" {
 		return label
 	}
-	cert, err := id.pkcs11Identity.Certificate()
+	cert, err := id.pkcs11Identity.Certificate(context.Background())
 	if err != nil {
 		return ""
 	}

@@ -30,6 +30,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/x509"
 	"fmt"
@@ -42,21 +43,39 @@ type FilterFunc func(*x509.Certificate) bool
 // FilterIdentities opens the store, applies the filter to each identity's
 // certificate, and returns matching identities. The caller must Close each
 // returned identity when done. The store is closed before returning.
-func FilterIdentities(filter FilterFunc) ([]Identity, error) {
-	store, err := Open()
+//
+// The context controls cancellation while opening the store, listing
+// identities, and loading their certificates. Passing nil is treated as
+// context.Background().
+func FilterIdentities(ctx context.Context, filter FilterFunc) ([]Identity, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	store, err := Open(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
 	defer store.Close()
 
-	idents, err := store.Identities()
+	idents, err := store.Identities(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list identities: %w", err)
 	}
 
 	var matched []Identity
 	for _, ident := range idents {
-		cert, err := ident.Certificate()
+		if err := ctx.Err(); err != nil {
+			for _, ident := range matched {
+				ident.Close()
+			}
+			for _, ident := range idents {
+				ident.Close()
+			}
+			return nil, err
+		}
+		cert, err := ident.Certificate(ctx)
 		if err != nil {
 			ident.Close()
 			continue
@@ -73,8 +92,8 @@ func FilterIdentities(filter FilterFunc) ([]Identity, error) {
 // Store represents an open handle to a certificate-identity backend.
 type Store interface {
 	// Identities returns all identities (certificate + private key pairs)
-	// available in the store.
-	Identities() ([]Identity, error)
+	// available in the store. Passing nil is treated as context.Background().
+	Identities(ctx context.Context) ([]Identity, error)
 
 	// Close releases any resources held by the store.
 	Close()
@@ -82,15 +101,18 @@ type Store interface {
 
 // Identity represents a single certificate and its associated private key.
 type Identity interface {
-	// Certificate returns the leaf certificate for this identity.
-	Certificate() (*x509.Certificate, error)
+	// Certificate returns the leaf certificate for this identity. Passing nil is
+	// treated as context.Background().
+	Certificate(ctx context.Context) (*x509.Certificate, error)
 
 	// CertificateChain returns the full certificate chain for this identity,
-	// starting with the leaf certificate.
-	CertificateChain() ([]*x509.Certificate, error)
+	// starting with the leaf certificate. Passing nil is treated as
+	// context.Background().
+	CertificateChain(ctx context.Context) ([]*x509.Certificate, error)
 
 	// Signer returns a crypto.Signer backed by this identity's private key.
-	Signer() (crypto.Signer, error)
+	// Passing nil is treated as context.Background().
+	Signer(ctx context.Context) (crypto.Signer, error)
 
 	// Close releases any resources held by this identity.
 	Close()
@@ -108,7 +130,7 @@ type CloseableSigner interface {
 // explicit cleanup. This is the signer counterpart to Store.Close and
 // Identity.Close.
 //
-// Callers that obtain a signer directly from Identity.Signer should prefer to
+// Callers that obtain a signer directly from Identity.Signer(ctx) should prefer to
 // call CloseSigner when they are done so native handles, key references, or
 // token sessions can be released promptly. It is a no-op for signers that do
 // not implement CloseableSigner.

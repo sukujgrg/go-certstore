@@ -3,6 +3,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -82,13 +83,13 @@ func TestMacKeychainIntegration(t *testing.T) {
 	runDarwinCommand(t, "", "security", "import", p12Path, "-k", keychainPath, "-P", keychainPassword, "-A")
 	runDarwinCommand(t, "", "security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", keychainPassword, keychainPath)
 
-	store, err := Open()
+	store, err := Open(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 
-	ident, err := FindIdentity(store, FindIdentityOptions{
+	ident, err := FindIdentity(context.Background(), store, FindIdentityOptions{
 		Backend:   BackendDarwin,
 		SubjectCN: testCN,
 		ValidOnly: true,
@@ -98,7 +99,7 @@ func TestMacKeychainIntegration(t *testing.T) {
 	}
 	defer ident.Close()
 
-	cert, err := ident.Certificate()
+	cert, err := ident.Certificate(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +107,7 @@ func TestMacKeychainIntegration(t *testing.T) {
 		t.Fatalf("unexpected certificate CN %q", cert.Subject.CommonName)
 	}
 
-	signer, err := ident.Signer()
+	signer, err := ident.Signer(context.Background())
 	if err != nil {
 		t.Skipf("temporary keychain identity not usable for signing in this environment: %v", err)
 	}

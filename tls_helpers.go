@@ -1,6 +1,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -32,9 +33,9 @@ type SelectOptions struct {
 // If more than one identity matches, it returns the highest-ranked candidate
 // according to SelectOptions and internal scoring. Use FindIdentities or direct
 // store enumeration if you need to inspect multiple matches instead of a single
-// winner.
-func FindTLSCertificate(store Store, opts SelectOptions) (*tls.Certificate, error) {
-	return findTLSCertificate(store, opts, nil)
+// winner. Passing nil is treated as context.Background().
+func FindTLSCertificate(ctx context.Context, store Store, opts SelectOptions) (*tls.Certificate, error) {
+	return findTLSCertificate(ctx, store, opts, nil)
 }
 
 // GetClientCertificateFunc returns a callback suitable for
@@ -42,15 +43,19 @@ func FindTLSCertificate(store Store, opts SelectOptions) (*tls.Certificate, erro
 // selects the best matching identity for the server's request.
 //
 // Like FindTLSCertificate, this returns at most one certificate even when
-// multiple identities match.
-func GetClientCertificateFunc(openOpts []Option, selectOpts SelectOptions) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+// multiple identities match. Passing nil is treated as context.Background().
+func GetClientCertificateFunc(ctx context.Context, openOpts []Option, selectOpts SelectOptions) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	return func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-		store, err := Open(openOpts...)
+		callCtx := normalizeContext(ctx)
+		if err := callCtx.Err(); err != nil {
+			return nil, err
+		}
+		store, err := Open(callCtx, openOpts...)
 		if err != nil {
 			return nil, err
 		}
 		defer store.Close()
-		return findTLSCertificate(store, selectOpts, info)
+		return findTLSCertificate(callCtx, store, selectOpts, info)
 	}
 }
 
@@ -58,8 +63,13 @@ type supportedSignatureAlgorithmProvider interface {
 	supportedSignatureAlgorithms() []tls.SignatureScheme
 }
 
-func findTLSCertificate(store Store, opts SelectOptions, req *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-	idents, err := store.Identities()
+func findTLSCertificate(ctx context.Context, store Store, opts SelectOptions, req *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	idents, err := store.Identities(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list identities for TLS selection: %w", err)
 	}
@@ -71,7 +81,10 @@ func findTLSCertificate(store Store, opts SelectOptions, req *tls.CertificateReq
 	)
 
 	for _, ident := range idents {
-		candidate, score, ok := tlsCertificateCandidate(ident, opts, req)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		candidate, score, ok := tlsCertificateCandidate(ctx, ident, opts, req)
 		ident.Close()
 		if !ok {
 			continue
@@ -89,18 +102,18 @@ func findTLSCertificate(store Store, opts SelectOptions, req *tls.CertificateReq
 	return best, nil
 }
 
-func tlsCertificateCandidate(ident Identity, opts SelectOptions, req *tls.CertificateRequestInfo) (*tls.Certificate, int, bool) {
-	cert, err := ident.Certificate()
+func tlsCertificateCandidate(ctx context.Context, ident Identity, opts SelectOptions, req *tls.CertificateRequestInfo) (*tls.Certificate, int, bool) {
+	cert, err := ident.Certificate(ctx)
 	if err != nil || !matchesTLSCertificate(cert, opts) {
 		return nil, 0, false
 	}
 
-	signer, err := ident.Signer()
+	signer, err := ident.Signer(ctx)
 	if err != nil {
 		return nil, 0, false
 	}
 
-	chain, err := ident.CertificateChain()
+	chain, err := ident.CertificateChain(ctx)
 	if err != nil || len(chain) == 0 {
 		chain = []*x509.Certificate{cert}
 	}

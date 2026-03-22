@@ -1,6 +1,7 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/x509"
 	"testing"
@@ -77,9 +78,11 @@ type noMetadataIdentity struct {
 	signer crypto.Signer
 }
 
-func (i *noMetadataIdentity) Certificate() (*x509.Certificate, error) { return i.cert, nil }
-func (i *noMetadataIdentity) CertificateChain() ([]*x509.Certificate, error) {
+func (i *noMetadataIdentity) Certificate(context.Context) (*x509.Certificate, error) {
+	return i.cert, nil
+}
+func (i *noMetadataIdentity) CertificateChain(context.Context) ([]*x509.Certificate, error) {
 	return []*x509.Certificate{i.cert}, nil
 }
-func (i *noMetadataIdentity) Signer() (crypto.Signer, error) { return i.signer, nil }
-func (i *noMetadataIdentity) Close()                         {}
+func (i *noMetadataIdentity) Signer(context.Context) (crypto.Signer, error) { return i.signer, nil }
+func (i *noMetadataIdentity) Close()                                        {}

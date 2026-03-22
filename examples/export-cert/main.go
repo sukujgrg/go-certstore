@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/pem"
 	"flag"
 	"log"
@@ -59,7 +60,8 @@ func main() {
 		}))
 	}
 
-	store, err := certstore.Open(openOpts...)
+	ctx := context.Background()
+	store, err := certstore.Open(ctx, openOpts...)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -75,7 +77,7 @@ func main() {
 		findOpts.Backend = certstore.BackendNSS
 	}
 
-	ident, err := certstore.FindIdentity(store, findOpts)
+	ident, err := certstore.FindIdentity(ctx, store, findOpts)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -92,7 +94,7 @@ func main() {
 	}
 
 	if *chain {
-		certs, err := ident.CertificateChain()
+		certs, err := ident.CertificateChain(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -102,7 +104,7 @@ func main() {
 			}
 		}
 	} else {
-		cert, err := ident.Certificate()
+		cert, err := ident.Certificate(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}

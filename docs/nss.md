@@ -23,7 +23,8 @@ Those decisions belong in the application that uses this library.
 ## Open an NSS profile
 
 ```go
-store, err := certstore.Open(
+ctx := context.Background()
+store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendNSS),
     certstore.WithNSSModule("/path/to/libsoftokn3.so"),
     certstore.WithNSSProfileDir("/path/to/nssdb"),
@@ -49,7 +50,7 @@ If you pass a plain directory, the library treats it as an `sql:` database.
 Once the store is open, the normal helper APIs apply:
 
 ```go
-ident, err := certstore.FindIdentity(store, certstore.FindIdentityOptions{
+ident, err := certstore.FindIdentity(ctx, store, certstore.FindIdentityOptions{
     Backend:   certstore.BackendNSS,
     SubjectCN: "client.example.com",
     ValidOnly: true,
@@ -65,6 +66,7 @@ For TLS client selection:
 ```go
 tlsConfig := &tls.Config{
     GetClientCertificate: certstore.GetClientCertificateFunc(
+        ctx,
         []certstore.Option{
             certstore.WithBackend(certstore.BackendNSS),
             certstore.WithNSSModule("/path/to/libsoftokn3.so"),

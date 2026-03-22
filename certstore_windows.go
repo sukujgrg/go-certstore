@@ -38,6 +38,7 @@ static LPCWSTR getBcryptSHA512Algorithm() { return BCRYPT_SHA512_ALGORITHM; }
 import "C"
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -67,7 +68,12 @@ type winStore struct {
 	h C.HCERTSTORE
 }
 
-func (s *winStore) Identities() ([]Identity, error) {
+func (s *winStore) Identities(ctx context.Context) ([]Identity, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	var idents []Identity
 
 	// Use CertFindChainInStore for proper chain-aware enumeration.
@@ -86,6 +92,9 @@ func (s *winStore) Identities() ([]Identity, error) {
 		)
 		if chainCtx == nil {
 			break
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		prev = chainCtx
 
@@ -133,7 +142,7 @@ type winIdentity struct {
 }
 
 func (id *winIdentity) Label() string {
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(context.Background())
 	if err != nil {
 		return ""
 	}
@@ -145,7 +154,7 @@ func (id *winIdentity) Backend() Backend {
 }
 
 func (id *winIdentity) KeyType() string {
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(context.Background())
 	if err != nil {
 		return ""
 	}
@@ -169,14 +178,18 @@ func (id *winIdentity) LoginRequiredState() CapabilityState {
 }
 
 func (id *winIdentity) URI() string {
-	cert, err := id.Certificate()
+	cert, err := id.Certificate(context.Background())
 	if err != nil {
 		return ""
 	}
 	return identityURIFromCert(BackendWindows, cert)
 }
 
-func (id *winIdentity) Certificate() (*x509.Certificate, error) {
+func (id *winIdentity) Certificate(ctx context.Context) (*x509.Certificate, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if id.cert != nil {
 		return id.cert, nil
 	}
@@ -190,9 +203,13 @@ func (id *winIdentity) Certificate() (*x509.Certificate, error) {
 	return cert, nil
 }
 
-func (id *winIdentity) CertificateChain() ([]*x509.Certificate, error) {
+func (id *winIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificate, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if id.chainCtx == nil || id.chainCtx.cChain < 1 {
-		cert, err := id.Certificate()
+		cert, err := id.Certificate(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -204,6 +221,9 @@ func (id *winIdentity) CertificateChain() ([]*x509.Certificate, error) {
 
 	chain := make([]*x509.Certificate, 0, len(elements))
 	for _, elem := range elements {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		der := C.GoBytes(unsafe.Pointer(elem.pCertContext.pbCertEncoded), C.int(elem.pCertContext.cbCertEncoded))
 		cert, err := x509.ParseCertificate(der)
 		if err != nil {
@@ -214,8 +234,13 @@ func (id *winIdentity) CertificateChain() ([]*x509.Certificate, error) {
 	return chain, nil
 }
 
-func (id *winIdentity) Signer() (crypto.Signer, error) {
-	cert, err := id.Certificate()
+func (id *winIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	cert, err := id.Certificate(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load Windows certificate for signer: %w", err)
 	}
