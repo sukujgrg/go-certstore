@@ -28,8 +28,8 @@ store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendNSS),
     certstore.WithNSSModule("/path/to/libsoftokn3.so"),
     certstore.WithNSSProfileDir("/path/to/nssdb"),
-    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-        return os.Getenv("CERTSTORE_PIN"), nil
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+        return []byte(os.Getenv("CERTSTORE_PIN")), nil
     }),
 )
 if err != nil {
@@ -71,8 +71,8 @@ tlsConfig := &tls.Config{
             certstore.WithBackend(certstore.BackendNSS),
             certstore.WithNSSModule("/path/to/libsoftokn3.so"),
             certstore.WithNSSProfileDir("/path/to/nssdb"),
-            certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-                return os.Getenv("CERTSTORE_PIN"), nil
+            certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+                return []byte(os.Getenv("CERTSTORE_PIN")), nil
             }),
         },
         certstore.SelectOptions{
@@ -267,7 +267,8 @@ CERTSTORE_PIN=secret123 go run ./examples/list-identities \
 
 The examples accept `-pin` or `CERTSTORE_PIN`, but the library itself still
 expects the application to provide credentials through
-`WithCredentialPrompt(...)`.
+`WithCredentialPrompt(...)`, which returns a wipeable `[]byte` buffer rather
+than a `string`.
 
 ### Profile argument detail
 

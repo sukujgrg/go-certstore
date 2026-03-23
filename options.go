@@ -35,6 +35,11 @@ type PromptInfo struct {
 	Reason string
 }
 
+// CredentialPrompt is called when a token or database backend needs
+// credentials to continue. The returned buffer is treated as secret material
+// and may be wiped by the library after the login attempt completes.
+type CredentialPrompt func(PromptInfo) ([]byte, error)
+
 // Options configures backend selection and backend-specific parameters.
 type Options struct {
 	// Backend selects which backend to open. BackendAuto chooses the default
@@ -49,8 +54,8 @@ type Options struct {
 	// PKCS11Slot selects a PKCS#11 token by numeric slot.
 	PKCS11Slot *uint
 	// CredentialPrompt supplies credentials when a token or database login is
-	// required.
-	CredentialPrompt func(PromptInfo) (string, error)
+	// required. The returned buffer may be wiped by the library after use.
+	CredentialPrompt CredentialPrompt
 
 	// NSSModule is the NSS softokn3 PKCS#11 module path to load when using the
 	// NSS backend.
@@ -98,8 +103,10 @@ func WithPKCS11Slot(slot uint) Option {
 // WithCredentialPrompt configures the callback used when a token-backed or
 // database-backed backend such as PKCS#11 or NSS requires credentials.
 // The callback is invoked lazily, only when the backend requires credentials
-// for enumeration or signing.
-func WithCredentialPrompt(prompt func(PromptInfo) (string, error)) Option {
+// for enumeration or signing. The returned buffer may be wiped by the library
+// after each login attempt, so callers should return a dedicated secret buffer
+// instead of a shared slice they intend to keep using.
+func WithCredentialPrompt(prompt CredentialPrompt) Option {
 	return func(opts *Options) {
 		opts.CredentialPrompt = prompt
 	}

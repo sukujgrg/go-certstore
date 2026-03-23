@@ -38,8 +38,8 @@ store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module("/usr/local/lib/opensc-pkcs11.so"),
     certstore.WithPKCS11TokenLabel("YubiKey PIV"),
-    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-        return os.Getenv("YUBIKEY_PIN"), nil
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+        return []byte(os.Getenv("YUBIKEY_PIN")), nil
     }),
 )
 if err != nil {
@@ -66,6 +66,10 @@ The library intentionally leaves PIN collection to the application. Use
 - terminal prompt
 - keychain/secret manager lookup
 - env/config injection
+
+The callback returns `[]byte`, and the library wipes that buffer after each
+login attempt. Applications that care about secret lifetime should return a
+dedicated buffer instead of a shared slice they plan to keep using.
 
 Selection note:
 
@@ -244,8 +248,8 @@ store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module(os.Getenv("SOFTHSM2_MODULE")),
     certstore.WithPKCS11TokenLabel("go-certstore-test"),
-    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-        return os.Getenv("PKCS11_PIN"), nil
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+        return []byte(os.Getenv("PKCS11_PIN")), nil
     }),
 )
 if err != nil {
@@ -270,8 +274,8 @@ tlsConfig := &tls.Config{
             certstore.WithBackend(certstore.BackendPKCS11),
             certstore.WithPKCS11Module(os.Getenv("SOFTHSM2_MODULE")),
             certstore.WithPKCS11TokenLabel("go-certstore-test"),
-            certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-                return os.Getenv("PKCS11_PIN"), nil
+            certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+                return []byte(os.Getenv("PKCS11_PIN")), nil
             }),
         },
         certstore.SelectOptions{

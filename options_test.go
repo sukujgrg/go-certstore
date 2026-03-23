@@ -9,7 +9,7 @@ func TestOptionSetters(t *testing.T) {
 	WithPKCS11Module("/tmp/module.so")(&opts)
 	WithPKCS11TokenLabel("token-label")(&opts)
 	WithPKCS11Slot(7)(&opts)
-	WithCredentialPrompt(func(PromptInfo) (string, error) { return "5678", nil })(&opts)
+	WithCredentialPrompt(func(PromptInfo) ([]byte, error) { return []byte("5678"), nil })(&opts)
 	WithNSSModule("/tmp/libsoftokn3.so")(&opts)
 	WithNSSProfileDir("/tmp/nss-profile")(&opts)
 

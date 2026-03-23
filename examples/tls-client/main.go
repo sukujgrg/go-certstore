@@ -60,8 +60,8 @@ func main() {
 		pinValue = os.Getenv("PKCS11_PIN")
 	}
 	if pinValue != "" {
-		openOpts = append(openOpts, certstore.WithCredentialPrompt(func(certstore.PromptInfo) (string, error) {
-			return pinValue, nil
+		openOpts = append(openOpts, certstore.WithCredentialPrompt(func(certstore.PromptInfo) ([]byte, error) {
+			return []byte(pinValue), nil
 		}))
 	}
 

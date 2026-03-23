@@ -12,6 +12,10 @@ A Go library for accessing X.509 certificate identities across native OS stores 
 | PKCS#11 (explicit module path) | Cross-platform | Implemented | Yes |
 | NSS (explicit softokn3 module path + profile dir) | Cross-platform | Implemented | Yes |
 
+PKCS#11 support includes hardware and software tokens such as YubiKey PIV via
+OpenSC, smart cards, HSMs, and SoftHSM, as long as the application provides an
+explicit module path and any required credentials.
+
 ## Install
 
 ```sh
@@ -39,8 +43,8 @@ store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module("/path/to/pkcs11/module"),
     certstore.WithPKCS11TokenLabel("YubiKey PIV"),
-    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-        return os.Getenv("PKCS11_PIN"), nil
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+        return []byte(os.Getenv("PKCS11_PIN")), nil
     }),
 )
 ```
@@ -53,8 +57,8 @@ store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendNSS),
     certstore.WithNSSModule("/path/to/libsoftokn3.so"),
     certstore.WithNSSProfileDir("/path/to/nssdb"),
-    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) (string, error) {
-        return os.Getenv("CERTSTORE_PIN"), nil
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+        return []byte(os.Getenv("CERTSTORE_PIN")), nil
     }),
 )
 ```
@@ -133,6 +137,17 @@ Two lifecycle details matter in practice:
 
 For both cases, prefer a long-lived context unless you explicitly want
 cancellation to stop later token access.
+
+## Credential Handling
+
+`WithCredentialPrompt` returns credentials as `[]byte`, not `string`.
+
+- the library wipes the returned buffer after each login attempt
+- callers that care about secret lifetime should return a dedicated buffer, not
+  a shared slice they plan to reuse
+- PKCS#11 login still requires a transient Go string internally because of the
+  underlying dependency, so this improves handling but is not a high-assurance
+  secret-memory scheme
 
 ## Scope
 

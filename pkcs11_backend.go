@@ -35,7 +35,7 @@ func openPKCS11Store(ctx context.Context, cfg Options) (Store, error) {
 type tokenModuleConfig struct {
 	backend    Backend
 	modulePath string
-	prompt     func(PromptInfo) (string, error)
+	prompt     CredentialPrompt
 	initOpts   []pkcs11.InitializeOption
 	cleanup    func()
 	selectSlot func(context.Context, *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error)
@@ -175,7 +175,7 @@ type pkcs11Module struct {
 	slotID    uint
 	slotInfo  pkcs11.SlotInfo
 	tokenInfo pkcs11.TokenInfo
-	prompt    func(PromptInfo) (string, error)
+	prompt    CredentialPrompt
 	cleanup   func()
 	refs      int
 	closed    bool
@@ -311,7 +311,7 @@ func (m *pkcs11Module) login(ctx context.Context, session pkcs11.SessionHandle) 
 		return ErrCredentialRequired
 	}
 
-	pin, err := m.prompt(PromptInfo{
+	credential, err := m.prompt(PromptInfo{
 		Backend:    m.backend,
 		TokenLabel: strings.TrimSpace(m.tokenInfo.Label),
 		SlotID:     m.slotID,
@@ -320,10 +320,11 @@ func (m *pkcs11Module) login(ctx context.Context, session pkcs11.SessionHandle) 
 	if err != nil {
 		return err
 	}
+	defer wipeBytes(credential)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	err = m.ctx.Login(session, pkcs11.CKU_USER, pin)
+	err = m.ctx.Login(session, pkcs11.CKU_USER, string(credential))
 	if err == nil {
 		return nil
 	}
@@ -871,6 +872,13 @@ func cloneBytes(src []byte) []byte {
 	dst := make([]byte, len(src))
 	copy(dst, src)
 	return dst
+}
+
+func wipeBytes(secret []byte) {
+	for i := range secret {
+		secret[i] = 0
+	}
+	runtime.KeepAlive(secret)
 }
 
 func buildCertificateChain(leaf *x509.Certificate, candidates []*x509.Certificate) []*x509.Certificate {
