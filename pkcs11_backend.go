@@ -69,6 +69,13 @@ func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
 	}
 
 	idents := make([]Identity, 0, len(certObjects))
+	identOK := false
+	defer func() {
+		if !identOK {
+			closeOpenIdentities(idents)
+		}
+	}()
+
 	loggedIn := false
 	for _, certObject := range certObjects {
 		if err := ctx.Err(); err != nil {
@@ -113,6 +120,7 @@ func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
 			chainPool: chainPool,
 		})
 	}
+	identOK = true
 	return idents, nil
 }
 

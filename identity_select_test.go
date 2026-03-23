@@ -41,6 +41,12 @@ func TestCloseSigner(t *testing.T) {
 	}
 }
 
+func TestCloseSignerNilIsNoop(t *testing.T) {
+	if err := CloseSigner(nil); err != nil {
+		t.Fatalf("CloseSigner(nil) returned %v", err)
+	}
+}
+
 func TestFindIdentity(t *testing.T) {
 	now := time.Now()
 	_, _, certA, keyA := newTestChain(t, "Select CA A", true)

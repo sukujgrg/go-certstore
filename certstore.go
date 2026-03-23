@@ -146,8 +146,8 @@ type CloseableSigner interface {
 //
 // Callers that obtain a signer directly from Identity.Signer(ctx) should prefer to
 // call CloseSigner when they are done so native handles, key references, or
-// token sessions can be released promptly. It is a no-op for signers that do
-// not implement CloseableSigner.
+// token sessions can be released promptly. It is a no-op when signer is nil or
+// does not implement CloseableSigner.
 func CloseSigner(signer crypto.Signer) error {
 	if closer, ok := signer.(CloseableSigner); ok {
 		return closer.Close()

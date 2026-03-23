@@ -265,7 +265,7 @@ defer store.Close()
 
 The repository also contains a full runnable integration test:
 
-- [pkcs11_integration_test.go](/Users/suku/github/sukujgrg/go-certstore/pkcs11_integration_test.go)
+- [pkcs11_integration_test.go](../pkcs11_integration_test.go)
 
 ## TLS helper flow
 

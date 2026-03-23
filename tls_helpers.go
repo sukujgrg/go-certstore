@@ -23,8 +23,12 @@ import (
 // certificates, and also favors later expiry. This is a scoring heuristic, not
 // a strict lexicographic ordering.
 type SelectOptions struct {
-	SubjectCN            string
-	IssuerCN             string
+	SubjectCN string
+	IssuerCN  string
+	// RequireClientAuthEKU rejects certificates whose ExtKeyUsage list is
+	// present and does not include ClientAuth or Any. Certificates with no
+	// ExtKeyUsage extensions are treated as unrestricted per X.509 semantics
+	// and are accepted.
 	RequireClientAuthEKU bool
 	PreferHardwareBacked bool
 }
@@ -188,6 +192,9 @@ func matchesTLSCertificate(cert *x509.Certificate, opts SelectOptions) bool {
 	return true
 }
 
+// hasClientAuthEKU returns true when the certificate is usable for client
+// authentication. Per X.509 semantics, certificates with no ExtKeyUsage
+// extensions are unrestricted and always pass.
 func hasClientAuthEKU(cert *x509.Certificate) bool {
 	if len(cert.ExtKeyUsage) == 0 {
 		return true

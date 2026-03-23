@@ -94,6 +94,8 @@ func (s *winStore) Identities(ctx context.Context) ([]Identity, error) {
 			break
 		}
 		if err := ctx.Err(); err != nil {
+			C.CertFreeCertificateChain(chainCtx)
+			closeOpenIdentities(idents)
 			return nil, err
 		}
 		prev = chainCtx
@@ -119,9 +121,21 @@ func (s *winStore) Identities(ctx context.Context) ([]Identity, error) {
 			continue
 		}
 
+		// Parse chain certificates eagerly because CertFindChainInStore
+		// frees the previous chain context on the next call.
+		var chainCerts []*x509.Certificate
+		for _, elem := range elements {
+			der := C.GoBytes(unsafe.Pointer(elem.pCertContext.pbCertEncoded), C.int(elem.pCertContext.cbCertEncoded))
+			c, parseErr := x509.ParseCertificate(der)
+			if parseErr != nil {
+				continue
+			}
+			chainCerts = append(chainCerts, c)
+		}
+
 		idents = append(idents, &winIdentity{
-			ctx:      dup,
-			chainCtx: chainCtx,
+			ctx:        dup,
+			chainCerts: chainCerts,
 		})
 	}
 
@@ -136,9 +150,9 @@ func (s *winStore) Close() {
 }
 
 type winIdentity struct {
-	ctx      *C.CERT_CONTEXT
-	chainCtx *C.CERT_CHAIN_CONTEXT
-	cert     *x509.Certificate
+	ctx        *C.CERT_CONTEXT
+	chainCerts []*x509.Certificate // parsed eagerly; see Identities()
+	cert       *x509.Certificate
 }
 
 func (id *winIdentity) Label() string {
@@ -208,30 +222,14 @@ func (id *winIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificat
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if id.chainCtx == nil || id.chainCtx.cChain < 1 {
-		cert, err := id.Certificate(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return []*x509.Certificate{cert}, nil
+	if len(id.chainCerts) > 0 {
+		return id.chainCerts, nil
 	}
-
-	simpleChain := *id.chainCtx.rgpChain
-	elements := unsafe.Slice(simpleChain.rgpElement, simpleChain.cElement)
-
-	chain := make([]*x509.Certificate, 0, len(elements))
-	for _, elem := range elements {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		der := C.GoBytes(unsafe.Pointer(elem.pCertContext.pbCertEncoded), C.int(elem.pCertContext.cbCertEncoded))
-		cert, err := x509.ParseCertificate(der)
-		if err != nil {
-			continue
-		}
-		chain = append(chain, cert)
+	cert, err := id.Certificate(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return chain, nil
+	return []*x509.Certificate{cert}, nil
 }
 
 func (id *winIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
@@ -281,10 +279,6 @@ func (id *winIdentity) Close() {
 	if id.ctx != nil {
 		C.CertFreeCertificateContext(id.ctx)
 		id.ctx = nil
-	}
-	if id.chainCtx != nil {
-		C.CertFreeCertificateChain(id.chainCtx)
-		id.chainCtx = nil
 	}
 }
 

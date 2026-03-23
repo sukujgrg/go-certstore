@@ -183,6 +183,45 @@ func TestFindTLSCertificateRequiresClientAuthEKU(t *testing.T) {
 	}
 }
 
+func TestFindTLSCertificateAcceptsNoEKUCertWithRequireClientAuth(t *testing.T) {
+	// X.509 semantics: certificates with no EKU extensions are unrestricted
+	// and should be accepted when RequireClientAuthEKU is set.
+	ca, caKey, _, _ := newTestChain(t, "No EKU CA", true)
+	noEKUKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noEKUTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(999),
+		Subject:      pkix.Name{CommonName: "no-eku.example.com"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(48 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		// No ExtKeyUsage set
+	}
+	noEKUDER, err := x509.CreateCertificate(rand.Reader, noEKUTemplate, ca, &noEKUKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noEKUCert, err := x509.ParseCertificate(noEKUDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store := &testStore{
+		idents: []Identity{
+			&testIdentity{cert: noEKUCert, signer: noEKUKey},
+		},
+	}
+	got, err := FindTLSCertificate(context.Background(), store, SelectOptions{RequireClientAuthEKU: true})
+	if err != nil {
+		t.Fatalf("expected no-EKU cert to be accepted, got %v", err)
+	}
+	if got.Leaf.Subject.CommonName != "no-eku.example.com" {
+		t.Fatalf("unexpected leaf: %s", got.Leaf.Subject.CommonName)
+	}
+}
+
 func TestFindTLSCertificateClosesDiscardedSignerCandidates(t *testing.T) {
 	_, _, certA, keyA := newTestChain(t, "Test CA A", true)
 	_, _, certB, keyB := newTestChain(t, "Test CA B", true)

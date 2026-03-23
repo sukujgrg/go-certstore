@@ -256,15 +256,15 @@ The most useful exported errors to branch on are:
 
 ## Docs
 
-- [PKCS#11 Usage](/Users/suku/github/sukujgrg/go-certstore/docs/pkcs11.md)
-- [NSS Usage](/Users/suku/github/sukujgrg/go-certstore/docs/nss.md)
-- [Examples](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md)
+- [PKCS#11 Usage](docs/pkcs11.md)
+- [NSS Usage](docs/nss.md)
+- [Examples](docs/examples.md)
 
 ## Runnable examples
 
 Runnable programs are available under `examples/`.
 
-See [docs/examples.md](/Users/suku/github/sukujgrg/go-certstore/docs/examples.md) for runnable commands and PKCS#11/NSS flag usage.
+See [docs/examples.md](docs/examples.md) for runnable commands and PKCS#11/NSS flag usage.
 
 ## Local checks
 
