@@ -155,6 +155,7 @@ type winIdentity struct {
 	chainCerts []*x509.Certificate // parsed eagerly; see Identities()
 	certMu     sync.Mutex
 	cert       *x509.Certificate
+	closeOnce  sync.Once
 }
 
 func (id *winIdentity) Label() string {
@@ -280,13 +281,16 @@ func (id *winIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
 }
 
 func (id *winIdentity) Close() {
-	if id.ctx != nil {
-		C.CertFreeCertificateContext(id.ctx)
-		id.ctx = nil
-	}
+	id.closeOnce.Do(func() {
+		if id.ctx != nil {
+			C.CertFreeCertificateContext(id.ctx)
+			id.ctx = nil
+		}
+	})
 }
 
 type winSigner struct {
+	mu         sync.Mutex
 	pub        crypto.PublicKey
 	keyHandle  C.HCRYPTPROV_OR_NCRYPT_KEY_HANDLE
 	isNCrypt   bool
@@ -306,6 +310,8 @@ func (s *winSigner) release() {
 }
 
 func (s *winSigner) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	runtime.SetFinalizer(s, nil)
 	s.release()
 	return nil
@@ -331,6 +337,8 @@ func (s *winSigner) supportedSignatureAlgorithms() []tls.SignatureScheme {
 }
 
 func (s *winSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.keyHandle == 0 {
 		return nil, ErrClosed
 	}

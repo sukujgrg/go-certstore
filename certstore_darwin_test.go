@@ -6,6 +6,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"errors"
 	"strings"
 	"testing"
@@ -46,6 +47,43 @@ func TestCurrentNativeBackendDarwin(t *testing.T) {
 	if got := currentNativeBackend(); got != BackendDarwin {
 		t.Fatalf("currentNativeBackend() = %q, want %q", got, BackendDarwin)
 	}
+}
+
+func TestMacSignerImplementsSupportedSignatureAlgorithms(t *testing.T) {
+	_, _, cert, _ := newTestChain(t, "Mac TLS Algo CA", true)
+	signer := &macSigner{pub: cert.PublicKey}
+	provider, ok := interface{}(signer).(interface {
+		supportedSignatureAlgorithms() []tls.SignatureScheme
+	})
+	if !ok {
+		t.Fatal("macSigner must implement supportedSignatureAlgorithmProvider")
+	}
+	schemes := provider.supportedSignatureAlgorithms()
+	if len(schemes) == 0 {
+		t.Fatal("expected non-empty signature schemes for ECDSA key")
+	}
+}
+
+func TestMacSignerReturnsErrClosedAfterClose(t *testing.T) {
+	signer := &macSigner{pub: nil}
+	if err := signer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := signer.Sign(nil, []byte{1, 2, 3}, crypto.SHA256)
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("expected ErrClosed, got %v", err)
+	}
+	// Double close must not panic.
+	if err := signer.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMacIdentityCloseIsIdempotent(t *testing.T) {
+	// macIdentity with zero refs — Close() should not panic on repeated calls.
+	id := &macIdentity{}
+	id.Close()
+	id.Close()
 }
 
 func TestMacSignerAlgorithmRejectsPSSSaltLengthAutoDowngrade(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -87,11 +88,12 @@ func (s *macStore) Close() {}
 
 // macIdentity implements Identity for a macOS Keychain identity.
 type macIdentity struct {
-	ref     C.SecIdentityRef
-	certMu  sync.Mutex
-	cert    *x509.Certificate
-	certRaw []byte
-	keyRef  C.SecKeyRef
+	ref       C.SecIdentityRef
+	certMu    sync.Mutex
+	cert      *x509.Certificate
+	certRaw   []byte
+	keyRef    C.SecKeyRef
+	closeOnce sync.Once
 }
 
 func (id *macIdentity) Label() string {
@@ -301,18 +303,21 @@ func (id *macIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
 }
 
 func (id *macIdentity) Close() {
-	if id.keyRef != 0 {
-		C.CFRelease(C.CFTypeRef(id.keyRef))
-		id.keyRef = 0
-	}
-	if id.ref != 0 {
-		C.CFRelease(C.CFTypeRef(id.ref))
-		id.ref = 0
-	}
+	id.closeOnce.Do(func() {
+		if id.keyRef != 0 {
+			C.CFRelease(C.CFTypeRef(id.keyRef))
+			id.keyRef = 0
+		}
+		if id.ref != 0 {
+			C.CFRelease(C.CFTypeRef(id.ref))
+			id.ref = 0
+		}
+	})
 }
 
 // macSigner implements crypto.Signer using Security.framework.
 type macSigner struct {
+	mu     sync.Mutex
 	keyRef C.SecKeyRef
 	pub    crypto.PublicKey
 }
@@ -325,6 +330,8 @@ func (s *macSigner) release() {
 }
 
 func (s *macSigner) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	runtime.SetFinalizer(s, nil)
 	s.release()
 	return nil
@@ -334,7 +341,13 @@ func (s *macSigner) Public() crypto.PublicKey {
 	return s.pub
 }
 
+func (s *macSigner) supportedSignatureAlgorithms() []tls.SignatureScheme {
+	return supportedSignatureAlgorithmsForPublicKey(s.pub)
+}
+
 func (s *macSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.keyRef == 0 {
 		return nil, ErrClosed
 	}
