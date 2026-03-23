@@ -17,6 +17,14 @@ General rules for all passes:
   such as resource ownership, lifetime, thread-safety, or cancellation
   behavior, verify it against primary vendor documentation and cite that source
   in the report. Prefer official documentation over secondary summaries.
+- When auditing an internal adapter or wrapper around an external library, treat
+  that boundary as its own contract. Check for:
+  - hidden aliasing of caller-owned or upstream-owned buffers
+  - typed-nil or interface-nil edge cases
+  - constructors that accept invalid inputs but fail only later in deeper calls
+  - mismatches between the adapter's accepted inputs or error behavior and the
+    wrapped library's actual contract
+  - stale docs/comments about ownership, copying, nil behavior, or error mapping
 - Treat credential/PIN handling as a correctness and safety concern: check whether secret material is unnecessarily copied, retained, logged, exposed through errors, or left unwiped where the library actually controls the buffer lifetime.
 - Do not invent or claim high-assurance secret-memory guarantees beyond what Go, `string` conversions, cgo, and underlying dependencies actually allow. If the implementation cannot provide a strong guarantee, document the real limit precisely.
 

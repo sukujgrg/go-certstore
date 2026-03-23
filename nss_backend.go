@@ -16,7 +16,7 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 func openNSSStore(ctx context.Context, cfg Options) (Store, error) {
@@ -189,7 +189,7 @@ func normalizeNSSProfileDir(dir string) string {
 	}
 }
 
-func selectNSSSlot(ctx context.Context, reader *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+func selectNSSSlot(ctx context.Context, reader *pkcs11.Context) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
 	return selectNSSSlotFromReader(ctx, reader)
 }
 

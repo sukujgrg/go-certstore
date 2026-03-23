@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 func TestWipeBytes(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 func TestNormalizeNSSProfileDir(t *testing.T) {

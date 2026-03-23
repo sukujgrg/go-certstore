@@ -6,7 +6,7 @@ import (
 	"crypto"
 	"testing"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 func TestPKCS11IdentityInfoMethods(t *testing.T) {
