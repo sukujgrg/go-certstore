@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -83,13 +84,15 @@ func findTLSCertificate(ctx context.Context, store Store, opts SelectOptions, re
 		found     bool
 	)
 
-	for _, ident := range idents {
+	for i, ident := range idents {
 		if err := ctx.Err(); err != nil {
+			closeOpenIdentities(idents)
 			closeTLSCertificate(best)
 			return nil, err
 		}
 		candidate, score, ok := tlsCertificateCandidate(ctx, ident, opts, req)
 		ident.Close()
+		idents[i] = nil
 		if !ok {
 			continue
 		}
@@ -160,6 +163,9 @@ func closeTLSCertificate(cert *tls.Certificate) {
 }
 
 func matchesTLSCertificate(cert *x509.Certificate, opts SelectOptions) bool {
+	if cert == nil {
+		return false
+	}
 	if opts.SubjectCN != "" && cert.Subject.CommonName != opts.SubjectCN {
 		return false
 	}
@@ -215,11 +221,15 @@ func supportedSignatureAlgorithmsForPublicKey(pub crypto.PublicKey) []tls.Signat
 		if pub.Curve == nil {
 			return nil
 		}
-		return []tls.SignatureScheme{
-			tls.ECDSAWithP256AndSHA256,
-			tls.ECDSAWithP384AndSHA384,
-			tls.ECDSAWithP521AndSHA512,
-			tls.ECDSAWithSHA1,
+		switch pub.Curve {
+		case elliptic.P256():
+			return []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256, tls.ECDSAWithSHA1}
+		case elliptic.P384():
+			return []tls.SignatureScheme{tls.ECDSAWithP384AndSHA384, tls.ECDSAWithSHA1}
+		case elliptic.P521():
+			return []tls.SignatureScheme{tls.ECDSAWithP521AndSHA512, tls.ECDSAWithSHA1}
+		default:
+			return nil
 		}
 	case ed25519.PublicKey:
 		return []tls.SignatureScheme{tls.Ed25519}

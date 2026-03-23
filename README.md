@@ -27,6 +27,10 @@ ctx := context.Background()
 store, err := certstore.Open(ctx)
 ```
 
+On Linux, the native backend is intentionally unsupported, so callers should
+choose `BackendPKCS11` or `BackendNSS` explicitly instead of relying on the
+platform default.
+
 Explicit PKCS#11 backend:
 
 ```go
@@ -176,11 +180,14 @@ configuration instead of embedding discovery or prompting policy in the library.
 
 `Open(context.Background())` with no options uses the native backend for the current platform.
 
+On Linux, that native path returns `ErrUnsupportedBackend` because there is no
+single standard system client-certificate store for this library to target.
+
 `Open(context.Background(), WithBackend(BackendAuto), ...)` follows these rules:
 
 - macOS and Windows use the native backend by default
-- PKCS#11 is selected when PKCS#11 options are supplied
-- NSS is selected when NSS options are supplied
+- any PKCS#11 option switches resolution to the PKCS#11 backend family, and the module path then becomes required
+- any NSS option switches resolution to the NSS backend family, and both module path and profile directory then become required
 
 ## Selection Semantics
 

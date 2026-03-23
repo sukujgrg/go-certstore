@@ -1,6 +1,6 @@
 //go:build darwin && cgo
 
-// macOS Keychain implementation for gocertstore.
+// macOS Keychain implementation for go-certstore.
 //
 // Original inspiration: github.com/getvictor/mtls
 // Design reference: github.com/github/smimesign/pkg/certstore
@@ -352,8 +352,20 @@ func (s *macSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]
 
 // algorithm maps (key type, hash, padding) to a SecKeyAlgorithm constant.
 func (s *macSigner) algorithm(opts crypto.SignerOpts) (C.SecKeyAlgorithm, error) {
-	hash := opts.HashFunc()
-	_, isPSS := opts.(*rsa.PSSOptions)
+	hash, err := signerHash(opts)
+	if err != nil {
+		return 0, err
+	}
+	pss, isPSS := opts.(*rsa.PSSOptions)
+	if isPSS {
+		saltLength, err := normalizePSSSaltLength(hash, pss.SaltLength)
+		if err != nil {
+			return 0, err
+		}
+		if saltLength != uint(hash.Size()) {
+			return 0, fmt.Errorf("%w: macOS RSA-PSS only supports salt length equal to hash length", ErrMechanismUnsupported)
+		}
+	}
 
 	switch s.pub.(type) {
 	case *ecdsa.PublicKey:

@@ -53,19 +53,15 @@ func FindIdentities(ctx context.Context, store Store, opts FindIdentityOptions) 
 	}
 
 	var matched []Identity
-	for _, ident := range idents {
+	for i, ident := range idents {
 		if err := ctx.Err(); err != nil {
-			for _, ident := range matched {
-				ident.Close()
-			}
-			for _, ident := range idents {
-				ident.Close()
-			}
+			closeOpenIdentities(idents)
 			return nil, err
 		}
 		ok, err := matchesIdentity(ctx, ident, opts)
 		if err != nil || !ok {
 			ident.Close()
+			idents[i] = nil
 			continue
 		}
 		matched = append(matched, ident)
@@ -93,29 +89,32 @@ func FindIdentity(ctx context.Context, store Store, opts FindIdentityOptions) (I
 	var (
 		best      Identity
 		bestScore int
+		bestIndex = -1
 	)
-	for _, ident := range idents {
+	for i, ident := range idents {
 		if err := ctx.Err(); err != nil {
-			for _, ident := range idents {
-				ident.Close()
-			}
+			closeOpenIdentities(idents)
 			return nil, err
 		}
 		cert, err := ident.Certificate(ctx)
 		if err != nil {
 			ident.Close()
+			idents[i] = nil
 			continue
 		}
 		score := scoreIdentity(ident, cert, opts)
 		if best == nil || score > bestScore {
 			if best != nil {
 				best.Close()
+				idents[bestIndex] = nil
 			}
 			best = ident
 			bestScore = score
+			bestIndex = i
 			continue
 		}
 		ident.Close()
+		idents[i] = nil
 	}
 	if best == nil {
 		return nil, ErrIdentityNotFound
@@ -132,7 +131,11 @@ func matchesIdentity(ctx context.Context, ident Identity, opts FindIdentityOptio
 		return false, nil
 	}
 
-	if info, ok := ident.(IdentityInfo); ok {
+	if opts.Backend != "" && opts.Backend != BackendAuto || opts.Label != "" || opts.KeyType != "" || opts.URI != "" {
+		info, ok := ident.(IdentityInfo)
+		if !ok {
+			return false, nil
+		}
 		if opts.Backend != "" && opts.Backend != BackendAuto && info.Backend() != opts.Backend {
 			return false, nil
 		}
@@ -145,15 +148,11 @@ func matchesIdentity(ctx context.Context, ident Identity, opts FindIdentityOptio
 		if opts.URI != "" && info.URI() != opts.URI {
 			return false, nil
 		}
-		if opts.RequireHardwareBacked && identityHardwareBackedState(ident) != CapabilityYes {
-			return false, nil
-		}
-		if opts.RequireLogin && identityLoginRequiredState(ident) != CapabilityYes {
-			return false, nil
-		}
-	} else if opts.Backend != "" && opts.Backend != BackendAuto {
+	}
+	if opts.RequireHardwareBacked && identityHardwareBackedState(ident) != CapabilityYes {
 		return false, nil
-	} else if opts.Label != "" || opts.KeyType != "" || opts.URI != "" || opts.RequireHardwareBacked || opts.RequireLogin {
+	}
+	if opts.RequireLogin && identityLoginRequiredState(ident) != CapabilityYes {
 		return false, nil
 	}
 
@@ -161,6 +160,9 @@ func matchesIdentity(ctx context.Context, ident Identity, opts FindIdentityOptio
 }
 
 func matchesIdentityCertificate(cert *x509.Certificate, opts FindIdentityOptions) bool {
+	if cert == nil {
+		return false
+	}
 	if opts.SubjectCN != "" && cert.Subject.CommonName != opts.SubjectCN {
 		return false
 	}

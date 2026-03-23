@@ -764,7 +764,10 @@ func selectPKCS11Slot(ctx context.Context, reader pkcs11SlotReader, slotSelectio
 }
 
 func pkcs11SignatureMechanism(pub crypto.PublicKey, digest []byte, opts crypto.SignerOpts) (*pkcs11.Mechanism, []byte, error) {
-	hash := opts.HashFunc()
+	hash, err := signerHash(opts)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	switch pub.(type) {
 	case *rsa.PublicKey:
@@ -798,12 +801,11 @@ func pkcs11PSSParams(hash crypto.Hash, opts *rsa.PSSOptions) ([]byte, error) {
 		return nil, err
 	}
 
-	saltLength := opts.SaltLength
-	switch saltLength {
-	case rsa.PSSSaltLengthAuto, rsa.PSSSaltLengthEqualsHash:
-		saltLength = hash.Size()
+	saltLength, err := normalizePSSSaltLength(hash, opts.SaltLength)
+	if err != nil {
+		return nil, err
 	}
-	return pkcs11.NewPSSParams(hashAlg, mgf, uint(saltLength)), nil
+	return pkcs11.NewPSSParams(hashAlg, mgf, saltLength), nil
 }
 
 func pkcs11HashParams(hash crypto.Hash) (uint, uint, error) {

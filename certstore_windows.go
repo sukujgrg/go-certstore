@@ -1,6 +1,6 @@
 //go:build windows && cgo
 
-// Windows CertStore implementation for gocertstore.
+// Windows CertStore implementation for go-certstore.
 //
 // Based on github.com/github/smimesign/pkg/certstore (Windows implementation).
 // Uses CGo with CNG/CryptoAPI for robust certificate and signing support.
@@ -344,8 +344,11 @@ func (s *winSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]
 
 // signNCrypt signs using CNG (NCrypt).
 func (s *winSigner) signNCrypt(digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	hash := opts.HashFunc()
-	_, isPSS := opts.(*rsa.PSSOptions)
+	hash, err := signerHash(opts)
+	if err != nil {
+		return nil, err
+	}
+	pss, isPSS := opts.(*rsa.PSSOptions)
 
 	var paddingInfo unsafe.Pointer
 	var flags C.DWORD = C.NCRYPT_SILENT_FLAG
@@ -359,10 +362,14 @@ func (s *winSigner) signNCrypt(digest []byte, opts crypto.SignerOpts) ([]byte, e
 			return nil, err
 		}
 		if isPSS {
+			saltLength, err := normalizePSSSaltLength(hash, pss.SaltLength)
+			if err != nil {
+				return nil, err
+			}
 			// RSA-PSS padding (required by TLS 1.3)
 			padding := C.BCRYPT_PSS_PADDING_INFO{
 				pszAlgId: algID,
-				cbSalt:   C.ULONG(hash.Size()),
+				cbSalt:   C.ULONG(saltLength),
 			}
 			paddingInfo = unsafe.Pointer(&padding)
 			flags |= C.BCRYPT_PAD_PSS
@@ -426,7 +433,10 @@ func (s *winSigner) signCryptoAPI(digest []byte, opts crypto.SignerOpts) ([]byte
 		return nil, fmt.Errorf("CryptoAPI private keys do not support %T", s.pub)
 	}
 
-	hash := opts.HashFunc()
+	hash, err := signerHash(opts)
+	if err != nil {
+		return nil, err
+	}
 
 	algID, err := cryptoAPIAlgID(hash)
 	if err != nil {

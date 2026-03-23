@@ -42,7 +42,8 @@ type FilterFunc func(*x509.Certificate) bool
 
 // FilterIdentities opens the store, applies the filter to each identity's
 // certificate, and returns matching identities. The caller must Close each
-// returned identity when done. The store is closed before returning.
+// returned identity when done. The store is closed before returning. The
+// filter must be non-nil.
 //
 // The context controls cancellation while opening the store, listing
 // identities, and loading their certificates. Passing nil is treated as
@@ -59,31 +60,36 @@ func FilterIdentities(ctx context.Context, filter FilterFunc) ([]Identity, error
 	}
 	defer store.Close()
 
+	return filterStoreIdentities(ctx, store, filter)
+}
+
+func filterStoreIdentities(ctx context.Context, store Store, filter FilterFunc) ([]Identity, error) {
+	if filter == nil {
+		return nil, fmt.Errorf("%w: filter is required", ErrInvalidConfiguration)
+	}
+
 	idents, err := store.Identities(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list identities: %w", err)
 	}
 
 	var matched []Identity
-	for _, ident := range idents {
+	for i, ident := range idents {
 		if err := ctx.Err(); err != nil {
-			for _, ident := range matched {
-				ident.Close()
-			}
-			for _, ident := range idents {
-				ident.Close()
-			}
+			closeOpenIdentities(idents)
 			return nil, err
 		}
 		cert, err := ident.Certificate(ctx)
 		if err != nil {
 			ident.Close()
+			idents[i] = nil
 			continue
 		}
 		if filter(cert) {
 			matched = append(matched, ident)
 		} else {
 			ident.Close()
+			idents[i] = nil
 		}
 	}
 	return matched, nil
@@ -141,6 +147,14 @@ func CloseSigner(signer crypto.Signer) error {
 		return closer.Close()
 	}
 	return nil
+}
+
+func closeOpenIdentities(idents []Identity) {
+	for _, ident := range idents {
+		if ident != nil {
+			ident.Close()
+		}
+	}
 }
 
 // IdentityInfo provides optional metadata for backends that can surface a

@@ -16,7 +16,9 @@ import (
 )
 
 // Example_mTLS demonstrates how to use go-certstore to find a client
-// certificate by CN and issuer, then use it for mTLS.
+// certificate by CN and issuer, then use it for mTLS. The callback reuses the
+// context provided here on each handshake because tls.Config does not expose a
+// per-handshake context.
 func Example_mTLS() {
 	tlsConfig := &tls.Config{
 		GetClientCertificate: certstore.GetClientCertificateFunc(context.Background(), nil, certstore.SelectOptions{
@@ -29,7 +31,8 @@ func Example_mTLS() {
 }
 
 // getCertificate returns a callback suitable for tls.Config.GetClientCertificate.
-// It wraps the higher-level helper for callers who prefer a local function.
+// It wraps the higher-level helper for callers who prefer a local function and
+// intentionally captures one long-lived context for later callback reuse.
 func getCertificate(cn, issuer string) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	return certstore.GetClientCertificateFunc(context.Background(), nil, certstore.SelectOptions{
 		SubjectCN:            cn,

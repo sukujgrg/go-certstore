@@ -5,6 +5,10 @@ Runnable example programs live under `examples/`.
 The examples accept `-pin`, `CERTSTORE_PIN`, or `PKCS11_PIN` when credentials
 are required.
 
+On Linux, `-backend auto` is unsupported because `go-certstore` does not
+provide a native Linux X.509 identity backend. Use `-backend pkcs11` or
+`-backend nss` there.
+
 ## Available examples
 
 - `examples/list-identities`
@@ -17,6 +21,7 @@ are required.
   - Supports PKCS#11 and NSS options through flags/environment
   - This example does not open a network connection
   - It simulates local certificate selection only, so you can see which identity would be chosen before wiring `GetClientCertificateFunc(ctx, ...)` into a real `tls.Config`
+  - In a real `tls.Config`, `GetClientCertificateFunc` reuses the context you provide when the callback is created, so pass a long-lived context unless you want later token access to be cancelable
 - `examples/export-cert`
   - Select one matching identity and write the leaf certificate or full chain as PEM
   - Supports `-subject`, `-issuer`, `-chain`, and `-out`
@@ -55,6 +60,9 @@ go run ./examples/list-identities \
   -module /path/to/libsoftokn3.so \
   -profile /path/to/nssdb
 ```
+
+Under `-backend auto`, `-module` is interpreted as the PKCS#11 module path.
+Use `-backend nss` when the module path is an NSS `softokn3` library.
 
 ## Run the TLS helper example
 

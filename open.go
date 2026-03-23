@@ -15,8 +15,10 @@ import (
 //
 // When BackendAuto is selected explicitly or implicitly:
 //   - native macOS and Windows backends are used by default
-//   - PKCS#11 is selected instead when PKCS#11 options are supplied
-//   - NSS is selected instead when an NSS module path and profile are supplied
+//   - any PKCS#11 option switches resolution to the PKCS#11 backend family,
+//     which still requires an explicit module path
+//   - any NSS option switches resolution to the NSS backend family, which
+//     still requires both an explicit softokn3 module path and profile
 //   - p11-kit discovery is unsupported and returns ErrUnsupportedBackend
 //
 // Use WithBackend to force a specific backend.

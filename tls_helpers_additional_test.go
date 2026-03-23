@@ -2,7 +2,11 @@ package certstore
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"strings"
 	"testing"
@@ -43,10 +47,96 @@ func TestSupportedSignatureAlgorithmsForPublicKey(t *testing.T) {
 	}
 }
 
+func TestSupportedSignatureAlgorithmsForECDSACurve(t *testing.T) {
+	p256Key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := supportedSignatureAlgorithmsForPublicKey(&p256Key.PublicKey); len(got) != 2 || got[0] != tls.ECDSAWithP256AndSHA256 || got[1] != tls.ECDSAWithSHA1 {
+		t.Fatalf("unexpected P-256 schemes: %v", got)
+	}
+
+	p384Key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := supportedSignatureAlgorithmsForPublicKey(&p384Key.PublicKey); len(got) != 2 || got[0] != tls.ECDSAWithP384AndSHA384 || got[1] != tls.ECDSAWithSHA1 {
+		t.Fatalf("unexpected P-384 schemes: %v", got)
+	}
+
+	p521Key, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := supportedSignatureAlgorithmsForPublicKey(&p521Key.PublicKey); len(got) != 2 || got[0] != tls.ECDSAWithP521AndSHA512 || got[1] != tls.ECDSAWithSHA1 {
+		t.Fatalf("unexpected P-521 schemes: %v", got)
+	}
+}
+
+func TestFindTLSCertificateClosesIdentitiesOnCancellation(t *testing.T) {
+	_, _, certA, keyA := newTestChain(t, "TLS Cancel CA A", true)
+	_, _, certB, keyB := newTestChain(t, "TLS Cancel CA B", true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var signerCloses int
+
+	idA := &cancelingTLSIdentity{
+		testIdentity: testIdentity{
+			cert:   certA,
+			signer: &testCloseableSigner{Signer: keyA, closeCalls: &signerCloses},
+		},
+		onCertificate: func(call int) {
+			if call == 1 {
+				cancel()
+			}
+		},
+	}
+	idB := &cancelingTLSIdentity{
+		testIdentity: testIdentity{
+			cert:   certB,
+			signer: keyB,
+		},
+	}
+
+	store := &testStore{idents: []Identity{idA, idB}}
+	_, err := FindTLSCertificate(ctx, store, SelectOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+	if idA.closeCalls != 1 {
+		t.Fatalf("first identity closed %d times", idA.closeCalls)
+	}
+	if idB.closeCalls != 1 {
+		t.Fatalf("second identity closed %d times", idB.closeCalls)
+	}
+	if signerCloses != 1 {
+		t.Fatalf("winning signer closed %d times", signerCloses)
+	}
+}
+
 func TestFindTLSCertificateIdentityNotFound(t *testing.T) {
 	store := &testStore{}
 	_, err := FindTLSCertificate(context.Background(), store, SelectOptions{})
 	if !errors.Is(err, ErrIdentityNotFound) {
 		t.Fatalf("expected ErrIdentityNotFound, got %v", err)
 	}
+}
+
+type cancelingTLSIdentity struct {
+	testIdentity
+	closeCalls    int
+	certCalls     int
+	onCertificate func(int)
+}
+
+func (i *cancelingTLSIdentity) Certificate(context.Context) (*x509.Certificate, error) {
+	i.certCalls++
+	if i.onCertificate != nil {
+		i.onCertificate(i.certCalls)
+	}
+	return i.cert, nil
+}
+
+func (i *cancelingTLSIdentity) Close() {
+	i.closeCalls++
 }
