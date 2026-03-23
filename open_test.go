@@ -68,16 +68,6 @@ func TestValidateOptionsAdditionalCases(t *testing.T) {
 		}
 	})
 
-	t.Run("p11kit unsupported", func(t *testing.T) {
-		err := validateOptions(Options{
-			Backend:   BackendPKCS11,
-			UseP11Kit: true,
-		})
-		if err == nil {
-			t.Fatal("expected error")
-		}
-	})
-
 	t.Run("nss backend requires module", func(t *testing.T) {
 		err := validateOptions(Options{
 			Backend:       BackendNSS,

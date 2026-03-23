@@ -12,7 +12,6 @@ func TestOptionSetters(t *testing.T) {
 	WithCredentialPrompt(func(PromptInfo) (string, error) { return "5678", nil })(&opts)
 	WithNSSModule("/tmp/libsoftokn3.so")(&opts)
 	WithNSSProfileDir("/tmp/nss-profile")(&opts)
-	WithP11Kit(true)(&opts)
 
 	if opts.Backend != BackendPKCS11 {
 		t.Fatalf("Backend = %q", opts.Backend)
@@ -34,8 +33,5 @@ func TestOptionSetters(t *testing.T) {
 	}
 	if opts.NSSProfileDir != "/tmp/nss-profile" {
 		t.Fatalf("NSSProfileDir = %q", opts.NSSProfileDir)
-	}
-	if !opts.UseP11Kit {
-		t.Fatal("UseP11Kit = false")
 	}
 }

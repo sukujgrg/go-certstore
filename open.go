@@ -19,7 +19,6 @@ import (
 //     which still requires an explicit module path
 //   - any NSS option switches resolution to the NSS backend family, which
 //     still requires both an explicit softokn3 module path and profile
-//   - p11-kit discovery is unsupported and returns ErrUnsupportedBackend
 //
 // Use WithBackend to force a specific backend.
 func Open(ctx context.Context, opts ...Option) (Store, error) {
@@ -60,9 +59,6 @@ func Open(ctx context.Context, opts ...Option) (Store, error) {
 			}
 			return openNSSStore(ctx, cfg)
 		}
-		if cfg.UseP11Kit {
-			return nil, fmt.Errorf("%w: p11-kit discovery is unsupported", ErrUnsupportedBackend)
-		}
 		return openNativeStore()
 	case BackendPKCS11:
 		return openPKCS11Store(ctx, cfg)
@@ -84,7 +80,7 @@ func validateOptions(cfg Options) error {
 		return fmt.Errorf("%w: backend %q is unknown", ErrUnsupportedBackend, cfg.Backend)
 	}
 
-	if hasPKCS11Config(cfg) || cfg.UseP11Kit {
+	if hasPKCS11Config(cfg) {
 		if cfg.Backend != BackendAuto && cfg.Backend != BackendPKCS11 {
 			return fmt.Errorf("%w: PKCS#11 options require backend %q or %q", ErrUnsupportedBackend, BackendAuto, BackendPKCS11)
 		}
@@ -98,9 +94,6 @@ func validateOptions(cfg Options) error {
 		if hasNSSConfig(cfg) && hasPKCS11Config(cfg) {
 			return fmt.Errorf("%w: PKCS#11 and NSS options cannot be combined under backend %q", ErrUnsupportedBackend, BackendAuto)
 		}
-		if cfg.UseP11Kit {
-			return fmt.Errorf("%w: p11-kit discovery is unsupported", ErrUnsupportedBackend)
-		}
 		if hasPKCS11Config(cfg) && cfg.PKCS11Module == "" {
 			return fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)
 		}
@@ -113,9 +106,6 @@ func validateOptions(cfg Options) error {
 	}
 
 	if cfg.Backend == BackendPKCS11 {
-		if cfg.UseP11Kit {
-			return fmt.Errorf("%w: p11-kit discovery is unsupported", ErrUnsupportedBackend)
-		}
 		if cfg.PKCS11Module == "" {
 			return fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)
 		}

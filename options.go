@@ -58,10 +58,6 @@ type Options struct {
 	// NSSProfileDir selects an NSS profile/database directory. The library uses
 	// this profile explicitly and does not try to discover browser profiles.
 	NSSProfileDir string
-
-	// UseP11Kit requests p11-kit-based PKCS#11 module discovery. The library
-	// does not implement p11-kit discovery and treats this as unsupported.
-	UseP11Kit bool
 }
 
 // Option mutates Open options.
@@ -120,15 +116,5 @@ func WithNSSModule(path string) Option {
 func WithNSSProfileDir(dir string) Option {
 	return func(opts *Options) {
 		opts.NSSProfileDir = dir
-	}
-}
-
-// WithP11Kit enables p11-kit-backed PKCS#11 module discovery.
-//
-// The library does not implement p11-kit discovery, so enabling this causes
-// Open to return ErrUnsupportedBackend.
-func WithP11Kit(enabled bool) Option {
-	return func(opts *Options) {
-		opts.UseP11Kit = enabled
 	}
 }
