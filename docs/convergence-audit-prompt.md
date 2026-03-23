@@ -13,6 +13,10 @@ General rules for all passes:
 - Run the relevant test suite after each pass that changes code/tests.
 - Keep going through all 3 passes before stopping.
 - In each pass, report only new findings from that pass, not a full replay of earlier ones.
+- When a correctness finding depends on external platform or library API semantics
+  such as resource ownership, lifetime, thread-safety, or cancellation
+  behavior, verify it against primary vendor documentation and cite that source
+  in the report. Prefer official documentation over secondary summaries.
 - Treat credential/PIN handling as a correctness and safety concern: check whether secret material is unnecessarily copied, retained, logged, exposed through errors, or left unwiped where the library actually controls the buffer lifetime.
 - Do not invent or claim high-assurance secret-memory guarantees beyond what Go, `string` conversions, cgo, and underlying dependencies actually allow. If the implementation cannot provide a strong guarantee, document the real limit precisely.
 
@@ -64,6 +68,9 @@ Pass 3: Docs and Contract Alignment Pass
 - Run tests again if code/tests changed.
 
 Final output requirements:
+- Write the final report as a Markdown file under `docs/report/` in the local
+  workspace. Treat this as a local working artifact and do not assume it will
+  be committed.
 - Section 1: Pass 1 findings and fixes
 - Section 2: Pass 2 findings and fixes
 - Section 3: Pass 3 findings and fixes
