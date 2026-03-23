@@ -325,10 +325,10 @@ func (m *pkcs11Module) login(ctx context.Context, session pkcs11.SessionHandle) 
 		SlotID:     m.slotID,
 		Reason:     string(m.backend) + " login required",
 	})
+	defer wipeBytes(credential)
 	if err != nil {
 		return err
 	}
-	defer wipeBytes(credential)
 	if err := ctx.Err(); err != nil {
 		return err
 	}

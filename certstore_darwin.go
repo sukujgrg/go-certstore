@@ -368,6 +368,9 @@ func (s *macSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]
 		defer C.CFRelease(C.CFTypeRef(cfErr))
 		return nil, fmt.Errorf("macOS signing failed: SecKeyCreateSignature failed")
 	}
+	if sig == 0 {
+		return nil, fmt.Errorf("macOS signing failed: SecKeyCreateSignature returned nil without error")
+	}
 	defer C.CFRelease(C.CFTypeRef(sig))
 
 	return C.GoBytes(unsafe.Pointer(C.CFDataGetBytePtr(sig)), C.int(C.CFDataGetLength(sig))), nil

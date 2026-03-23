@@ -67,9 +67,10 @@ The library intentionally leaves PIN collection to the application. Use
 - keychain/secret manager lookup
 - env/config injection
 
-The callback returns `[]byte`, and the library wipes that buffer after each
-login attempt. Applications that care about secret lifetime should return a
-dedicated buffer instead of a shared slice they plan to keep using.
+The callback returns `[]byte`, and the library wipes that buffer after use,
+including when the callback itself returns an error. Applications that care
+about secret lifetime should return a dedicated buffer instead of a shared
+slice they plan to keep using.
 
 For PKCS#11 login, `go-certstore` avoids making an extra Go `[]byte` to
 `string` copy itself before calling the underlying dependency, but the

@@ -147,7 +147,8 @@ cancellation to stop later token access.
 
 `WithCredentialPrompt` returns credentials as `[]byte`, not `string`.
 
-- the library wipes the returned buffer after each login attempt
+- the library wipes the returned buffer after use, including when the
+  callback itself returns an error
 - callers that care about secret lifetime should return a dedicated buffer, not
   a shared slice they plan to reuse
 - for PKCS#11/NSS login, this package now passes a transient string view of
