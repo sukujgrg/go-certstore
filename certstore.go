@@ -67,6 +67,9 @@ func filterStoreIdentities(ctx context.Context, store Store, filter FilterFunc) 
 	if filter == nil {
 		return nil, fmt.Errorf("%w: filter is required", ErrInvalidConfiguration)
 	}
+	if store == nil {
+		return nil, fmt.Errorf("%w: store is required", ErrInvalidConfiguration)
+	}
 
 	idents, err := store.Identities(ctx)
 	if err != nil {
@@ -78,6 +81,9 @@ func filterStoreIdentities(ctx context.Context, store Store, filter FilterFunc) 
 		if err := ctx.Err(); err != nil {
 			closeOpenIdentities(idents)
 			return nil, err
+		}
+		if ident == nil {
+			continue
 		}
 		cert, err := ident.Certificate(ctx)
 		if err != nil {

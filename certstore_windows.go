@@ -362,7 +362,11 @@ func (s *winSigner) signNCrypt(digest []byte, opts crypto.SignerOpts) ([]byte, e
 			return nil, err
 		}
 		if isPSS {
-			saltLength, err := normalizePSSSaltLength(hash, pss.SaltLength)
+			rsaPub, ok := s.pub.(*rsa.PublicKey)
+			if !ok {
+				return nil, fmt.Errorf("%w: RSA-PSS requires an RSA public key", ErrMechanismUnsupported)
+			}
+			saltLength, err := normalizePSSSaltLength(rsaPub, hash, pss.SaltLength)
 			if err != nil {
 				return nil, err
 			}
@@ -388,7 +392,7 @@ func (s *winSigner) signNCrypt(digest []byte, opts crypto.SignerOpts) ([]byte, e
 	status := C.NCryptSignHash(
 		C.NCRYPT_KEY_HANDLE(s.keyHandle),
 		paddingInfo,
-		(*C.BYTE)(unsafe.Pointer(&digest[0])),
+		(*C.BYTE)(byteSlicePtr(digest)),
 		C.DWORD(len(digest)),
 		nil,
 		0,
@@ -404,9 +408,9 @@ func (s *winSigner) signNCrypt(digest []byte, opts crypto.SignerOpts) ([]byte, e
 	status = C.NCryptSignHash(
 		C.NCRYPT_KEY_HANDLE(s.keyHandle),
 		paddingInfo,
-		(*C.BYTE)(unsafe.Pointer(&digest[0])),
+		(*C.BYTE)(byteSlicePtr(digest)),
 		C.DWORD(len(digest)),
-		(*C.BYTE)(unsafe.Pointer(&sig[0])),
+		(*C.BYTE)(byteSlicePtr(sig)),
 		sigLen,
 		&sigLen,
 		flags,
@@ -449,7 +453,7 @@ func (s *winSigner) signCryptoAPI(digest []byte, opts crypto.SignerOpts) ([]byte
 	}
 	defer C.CryptDestroyHash(cryptHash)
 
-	if ok := C.CryptSetHashParam(cryptHash, C.HP_HASHVAL, (*C.BYTE)(unsafe.Pointer(&digest[0])), 0); ok == 0 {
+	if ok := C.CryptSetHashParam(cryptHash, C.HP_HASHVAL, (*C.BYTE)(byteSlicePtr(digest)), 0); ok == 0 {
 		return nil, lastError("CryptSetHashParam")
 	}
 
@@ -462,8 +466,8 @@ func (s *winSigner) signCryptoAPI(digest []byte, opts crypto.SignerOpts) ([]byte
 	}
 
 	sig := make([]byte, sigLen)
-	if ok := C.CryptSignHashW(cryptHash, C.AT_KEYEXCHANGE, nil, 0, (*C.BYTE)(unsafe.Pointer(&sig[0])), &sigLen); ok == 0 {
-		if ok = C.CryptSignHashW(cryptHash, C.AT_SIGNATURE, nil, 0, (*C.BYTE)(unsafe.Pointer(&sig[0])), &sigLen); ok == 0 {
+	if ok := C.CryptSignHashW(cryptHash, C.AT_KEYEXCHANGE, nil, 0, (*C.BYTE)(byteSlicePtr(sig)), &sigLen); ok == 0 {
+		if ok = C.CryptSignHashW(cryptHash, C.AT_SIGNATURE, nil, 0, (*C.BYTE)(byteSlicePtr(sig)), &sigLen); ok == 0 {
 			return nil, lastError("CryptSignHash")
 		}
 	}

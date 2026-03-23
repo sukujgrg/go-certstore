@@ -3,6 +3,10 @@
 package certstore
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -41,5 +45,21 @@ func TestMacIdentityImplementsIdentityInfo(t *testing.T) {
 func TestCurrentNativeBackendDarwin(t *testing.T) {
 	if got := currentNativeBackend(); got != BackendDarwin {
 		t.Fatalf("currentNativeBackend() = %q, want %q", got, BackendDarwin)
+	}
+}
+
+func TestMacSignerAlgorithmRejectsPSSSaltLengthAutoDowngrade(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	signer := &macSigner{pub: &key.PublicKey}
+	_, err = signer.algorithm(&rsa.PSSOptions{
+		SaltLength: rsa.PSSSaltLengthAuto,
+		Hash:       crypto.SHA256,
+	})
+	if !errors.Is(err, ErrMechanismUnsupported) {
+		t.Fatalf("expected ErrMechanismUnsupported, got %v", err)
 	}
 }

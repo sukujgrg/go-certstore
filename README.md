@@ -84,6 +84,11 @@ tlsConfig := &tls.Config{
 | RSA-PSS (SHA256/384/512) | Yes | Yes | — | Yes | Yes |
 | ECDSA (SHA1/256/384/512) | Yes | Yes | — | Yes | Yes |
 
+Direct `crypto.Signer` use can still have backend-specific limits. In
+particular, the macOS backend supports RSA-PSS only when the requested salt
+length equals the hash length, matching the Security.framework algorithms used
+here.
+
 ## Core API
 
 ```go
@@ -145,9 +150,10 @@ cancellation to stop later token access.
 - the library wipes the returned buffer after each login attempt
 - callers that care about secret lifetime should return a dedicated buffer, not
   a shared slice they plan to reuse
-- PKCS#11 login still requires a transient Go string internally because of the
-  underlying dependency, so this improves handling but is not a high-assurance
-  secret-memory scheme
+- for PKCS#11/NSS login, this package now passes a transient string view of
+  that buffer to the underlying dependency instead of allocating an extra Go
+  copy itself, but cgo and the dependency may still copy internally
+- this improves handling but is not a high-assurance secret-memory scheme
 
 ## Scope
 

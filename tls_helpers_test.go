@@ -1,6 +1,7 @@
 package certstore
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -250,6 +251,34 @@ func TestFindTLSCertificateClosesSignerRejectedByCertificateRequest(t *testing.T
 	}
 	if closes != 1 {
 		t.Fatalf("expected rejected signer to be closed once, got %d", closes)
+	}
+}
+
+func TestFindTLSCertificateSkipsNilChainEntries(t *testing.T) {
+	ca, _, leaf, key := newTestChain(t, "TLS Chain CA", true)
+
+	store := &testStore{
+		idents: []Identity{
+			&testIdentity{
+				cert:   leaf,
+				chain:  []*x509.Certificate{nil, ca, nil},
+				signer: key,
+			},
+		},
+	}
+
+	got, err := FindTLSCertificate(context.Background(), store, SelectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Certificate) != 2 {
+		t.Fatalf("expected leaf and CA certificates, got %d entries", len(got.Certificate))
+	}
+	if !bytes.Equal(got.Certificate[0], leaf.Raw) {
+		t.Fatal("expected leaf certificate to stay first")
+	}
+	if !bytes.Equal(got.Certificate[1], ca.Raw) {
+		t.Fatal("expected issuer certificate to be appended")
 	}
 }
 

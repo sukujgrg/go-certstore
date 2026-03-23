@@ -336,7 +336,10 @@ func (s *macSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]
 		return nil, err
 	}
 
-	data := C.CFDataCreate(C.kCFAllocatorDefault, (*C.UInt8)(unsafe.Pointer(&digest[0])), C.CFIndex(len(digest)))
+	data := C.CFDataCreate(C.kCFAllocatorDefault, (*C.UInt8)(byteSlicePtr(digest)), C.CFIndex(len(digest)))
+	if data == 0 {
+		return nil, fmt.Errorf("macOS signing failed: CFDataCreate returned nil")
+	}
 	defer C.CFRelease(C.CFTypeRef(data))
 
 	var cfErr C.CFErrorRef
@@ -358,7 +361,11 @@ func (s *macSigner) algorithm(opts crypto.SignerOpts) (C.SecKeyAlgorithm, error)
 	}
 	pss, isPSS := opts.(*rsa.PSSOptions)
 	if isPSS {
-		saltLength, err := normalizePSSSaltLength(hash, pss.SaltLength)
+		rsaPub, ok := s.pub.(*rsa.PublicKey)
+		if !ok {
+			return 0, fmt.Errorf("%w: RSA-PSS requires an RSA public key", ErrMechanismUnsupported)
+		}
+		saltLength, err := normalizePSSSaltLength(rsaPub, hash, pss.SaltLength)
 		if err != nil {
 			return 0, err
 		}

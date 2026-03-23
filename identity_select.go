@@ -46,6 +46,9 @@ func FindIdentities(ctx context.Context, store Store, opts FindIdentityOptions) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if store == nil {
+		return nil, fmt.Errorf("%w: store is required", ErrInvalidConfiguration)
+	}
 
 	idents, err := store.Identities(ctx)
 	if err != nil {
@@ -57,6 +60,9 @@ func FindIdentities(ctx context.Context, store Store, opts FindIdentityOptions) 
 		if err := ctx.Err(); err != nil {
 			closeOpenIdentities(idents)
 			return nil, err
+		}
+		if ident == nil {
+			continue
 		}
 		ok, err := matchesIdentity(ctx, ident, opts)
 		if err != nil || !ok {
@@ -187,7 +193,7 @@ func scoreIdentity(ident Identity, cert *x509.Certificate, opts FindIdentityOpti
 	if now.IsZero() {
 		now = time.Now()
 	}
-	if now.After(cert.NotBefore) && now.Before(cert.NotAfter) {
+	if isCertificateCurrentlyValid(cert, now) {
 		score += identityScoreCurrentlyValid
 	}
 	if opts.PreferHardwareBacked {
@@ -197,4 +203,11 @@ func scoreIdentity(ident Identity, cert *x509.Certificate, opts FindIdentityOpti
 	}
 	score += int(cert.NotAfter.Sub(now).Hours()/24) * identityScorePerDayUntilExpiry
 	return score
+}
+
+func isCertificateCurrentlyValid(cert *x509.Certificate, now time.Time) bool {
+	if cert == nil {
+		return false
+	}
+	return !now.Before(cert.NotBefore) && !now.After(cert.NotAfter)
 }

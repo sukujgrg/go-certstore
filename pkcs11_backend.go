@@ -324,7 +324,8 @@ func (m *pkcs11Module) login(ctx context.Context, session pkcs11.SessionHandle) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	err = m.ctx.Login(session, pkcs11.CKU_USER, string(credential))
+	err = m.ctx.Login(session, pkcs11.CKU_USER, byteSliceStringView(credential))
+	runtime.KeepAlive(credential)
 	if err == nil {
 		return nil
 	}
@@ -773,7 +774,8 @@ func pkcs11SignatureMechanism(pub crypto.PublicKey, digest []byte, opts crypto.S
 	switch pub.(type) {
 	case *rsa.PublicKey:
 		if pss, ok := opts.(*rsa.PSSOptions); ok {
-			params, err := pkcs11PSSParams(hash, pss)
+			rsaPub := pub.(*rsa.PublicKey)
+			params, err := pkcs11PSSParams(rsaPub, hash, pss)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -796,13 +798,13 @@ func pkcs11SignatureMechanism(pub crypto.PublicKey, digest []byte, opts crypto.S
 	}
 }
 
-func pkcs11PSSParams(hash crypto.Hash, opts *rsa.PSSOptions) ([]byte, error) {
+func pkcs11PSSParams(pub *rsa.PublicKey, hash crypto.Hash, opts *rsa.PSSOptions) ([]byte, error) {
 	hashAlg, mgf, err := pkcs11HashParams(hash)
 	if err != nil {
 		return nil, err
 	}
 
-	saltLength, err := normalizePSSSaltLength(hash, opts.SaltLength)
+	saltLength, err := normalizePSSSaltLength(pub, hash, opts.SaltLength)
 	if err != nil {
 		return nil, err
 	}

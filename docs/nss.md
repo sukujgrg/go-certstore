@@ -268,7 +268,9 @@ CERTSTORE_PIN=secret123 go run ./examples/list-identities \
 The examples accept `-pin` or `CERTSTORE_PIN`, but the library itself still
 expects the application to provide credentials through
 `WithCredentialPrompt(...)`, which returns a wipeable `[]byte` buffer rather
-than a `string`.
+than a `string`. `go-certstore` avoids making an extra Go `[]byte` to `string`
+copy itself before calling the underlying NSS/PKCS#11 dependency, but the
+dependency and cgo boundary may still create transient copies.
 
 ### Profile argument detail
 

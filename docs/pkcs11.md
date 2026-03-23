@@ -71,6 +71,11 @@ The callback returns `[]byte`, and the library wipes that buffer after each
 login attempt. Applications that care about secret lifetime should return a
 dedicated buffer instead of a shared slice they plan to keep using.
 
+For PKCS#11 login, `go-certstore` avoids making an extra Go `[]byte` to
+`string` copy itself before calling the underlying dependency, but the
+dependency and cgo boundary may still create transient copies. This is an
+improvement, not a high-assurance secret-memory guarantee.
+
 Selection note:
 
 - `FindIdentity` returns one best-ranked identity when multiple PKCS#11

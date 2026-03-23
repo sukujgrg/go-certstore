@@ -37,7 +37,10 @@ type PromptInfo struct {
 
 // CredentialPrompt is called when a token or database backend needs
 // credentials to continue. The returned buffer is treated as secret material
-// and may be wiped by the library after the login attempt completes.
+// and is wiped by the library after each login attempt it performs. Some
+// underlying dependencies still expose string-based APIs, so this reduces
+// avoidable copies in this package but is not a high-assurance secret-memory
+// guarantee.
 type CredentialPrompt func(PromptInfo) ([]byte, error)
 
 // Options configures backend selection and backend-specific parameters.
@@ -54,7 +57,9 @@ type Options struct {
 	// PKCS11Slot selects a PKCS#11 token by numeric slot.
 	PKCS11Slot *uint
 	// CredentialPrompt supplies credentials when a token or database login is
-	// required. The returned buffer may be wiped by the library after use.
+	// required. The returned buffer is wiped by the library after each login
+	// attempt it performs, but underlying dependencies may still make their own
+	// transient copies.
 	CredentialPrompt CredentialPrompt
 
 	// NSSModule is the NSS softokn3 PKCS#11 module path to load when using the
@@ -103,9 +108,11 @@ func WithPKCS11Slot(slot uint) Option {
 // WithCredentialPrompt configures the callback used when a token-backed or
 // database-backed backend such as PKCS#11 or NSS requires credentials.
 // The callback is invoked lazily, only when the backend requires credentials
-// for enumeration or signing. The returned buffer may be wiped by the library
+// for enumeration or signing. The returned buffer is wiped by the library
 // after each login attempt, so callers should return a dedicated secret buffer
-// instead of a shared slice they intend to keep using.
+// instead of a shared slice they intend to keep using. This reduces avoidable
+// copies in this package, but underlying dependencies may still copy the
+// credential internally.
 func WithCredentialPrompt(prompt CredentialPrompt) Option {
 	return func(opts *Options) {
 		opts.CredentialPrompt = prompt

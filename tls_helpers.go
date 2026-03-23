@@ -1,6 +1,7 @@
 package certstore
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/ecdsa"
@@ -72,6 +73,9 @@ func findTLSCertificate(ctx context.Context, store Store, opts SelectOptions, re
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if store == nil {
+		return nil, fmt.Errorf("%w: store is required", ErrInvalidConfiguration)
+	}
 
 	idents, err := store.Identities(ctx)
 	if err != nil {
@@ -89,6 +93,9 @@ func findTLSCertificate(ctx context.Context, store Store, opts SelectOptions, re
 			closeOpenIdentities(idents)
 			closeTLSCertificate(best)
 			return nil, err
+		}
+		if ident == nil {
+			continue
 		}
 		candidate, score, ok := tlsCertificateCandidate(ctx, ident, opts, req)
 		ident.Close()
@@ -129,11 +136,14 @@ func tlsCertificateCandidate(ctx context.Context, ident Identity, opts SelectOpt
 	}
 
 	tlsCert := &tls.Certificate{
-		Certificate: make([][]byte, 0, len(chain)),
-		PrivateKey:  signer,
-		Leaf:        cert,
+		PrivateKey: signer,
+		Leaf:       cert,
 	}
+	tlsCert.Certificate = append(tlsCert.Certificate, cert.Raw)
 	for _, c := range chain {
+		if c == nil || len(c.Raw) == 0 || bytes.Equal(c.Raw, cert.Raw) {
+			continue
+		}
 		tlsCert.Certificate = append(tlsCert.Certificate, c.Raw)
 	}
 
@@ -198,7 +208,7 @@ func scoreTLSIdentity(ident Identity, cert *x509.Certificate, opts SelectOptions
 		}
 	}
 	now := time.Now()
-	if now.After(cert.NotBefore) && now.Before(cert.NotAfter) {
+	if isCertificateCurrentlyValid(cert, now) {
 		score += identityScoreCurrentlyValid
 	}
 	score += int(cert.NotAfter.Sub(now).Hours()/24) * identityScorePerDayUntilExpiry
