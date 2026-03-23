@@ -69,10 +69,10 @@ func NewAttribute(typ uint, value interface{}) *Attribute {
 	}
 }
 
-// NewMechanism mirrors miekg/pkcs11's accepted mechanism parameter types while
-// copying []byte parameters into package-owned storage. Supported pointer
-// parameter types must be non-nil so invalid inputs fail here instead of later
-// during upstream mechanism serialization.
+// NewMechanism constructs the subset of mechanism parameters this repository
+// currently needs: nil and raw []byte parameter blobs. It copies []byte
+// parameters into package-owned storage so invalid or out-of-scope inputs fail
+// here instead of later during upstream mechanism serialization.
 func NewMechanism(mechanism uint, parameter interface{}) *Mechanism {
 	return &Mechanism{
 		Mechanism: mechanism,
@@ -86,28 +86,7 @@ func cloneMechanismParameter(parameter interface{}) interface{} {
 		return nil
 	case []byte:
 		return bytes.Clone(value)
-	case *upstream.GCMParams:
-		if value == nil {
-			panic("parameter must not be a nil *GCMParams")
-		}
-		return parameter
-	case *upstream.OAEPParams:
-		if value == nil {
-			panic("parameter must not be a nil *OAEPParams")
-		}
-		return parameter
-	case *upstream.ECDH1DeriveParams:
-		if value == nil {
-			panic("parameter must not be a nil *ECDH1DeriveParams")
-		}
-		return parameter
-	case *upstream.RSAAESKeyWrapParams:
-		if value == nil {
-			panic("parameter must not be a nil *RSAAESKeyWrapParams")
-		}
-		return parameter
 	default:
-		panic("parameter must be one of type: []byte, *GCMParams, *OAEPParams, *ECDH1DeriveParams," +
-			" *RSAAESKeyWrapParams")
+		panic("parameter must be nil or []byte")
 	}
 }

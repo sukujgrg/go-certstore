@@ -32,6 +32,21 @@ func TestNormalizeNSSProfileDir(t *testing.T) {
 	}
 }
 
+func TestFormatNSSReservedConfigEscapesProfileSpec(t *testing.T) {
+	profile := "sql:/tmp/quote'd path\\db"
+	got := formatNSSReservedConfig(profile)
+
+	if !strings.Contains(got, "configdir='sql:/tmp/quote\\'d path\\\\db'") {
+		t.Fatalf("formatNSSReservedConfig() = %q", got)
+	}
+	if !strings.Contains(got, "certPrefix=''") {
+		t.Fatalf("formatNSSReservedConfig() missing certPrefix: %q", got)
+	}
+	if !strings.Contains(got, "secmod='secmod.db'") {
+		t.Fatalf("formatNSSReservedConfig() missing secmod: %q", got)
+	}
+}
+
 func TestNSSIdentityMetadata(t *testing.T) {
 	_, _, leaf, _ := newTestChain(t, "NSS CA", true)
 

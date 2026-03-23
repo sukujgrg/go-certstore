@@ -297,6 +297,16 @@ func TestNewMechanismRejectsTypedNilPointerParameter(t *testing.T) {
 	NewMechanism(CKM_RSA_PKCS_PSS, params)
 }
 
+func TestNewMechanismRejectsOutOfScopePointerParameter(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewMechanism() did not panic for out-of-scope pointer parameter")
+		}
+	}()
+
+	NewMechanism(CKM_RSA_PKCS_PSS, &upstream.OAEPParams{})
+}
+
 func TestToUpstreamAttributesPreservesRawValues(t *testing.T) {
 	attrs := []*Attribute{
 		NewAttribute(CKA_CLASS, CKO_PRIVATE_KEY),

@@ -161,7 +161,7 @@ func (id *nssIdentity) TokenSerial() string {
 
 func newNSSModule(ctx context.Context, cfg Options) (*pkcs11Module, error) {
 	profileSpec := normalizeNSSProfileDir(cfg.NSSProfileDir)
-	reserved := C.CString(fmt.Sprintf("configdir='%s' certPrefix='' keyPrefix='' secmod='secmod.db' flags=readOnly", profileSpec))
+	reserved := C.CString(formatNSSReservedConfig(profileSpec))
 	cleanup := func() {
 		C.free(unsafe.Pointer(reserved))
 	}
@@ -176,6 +176,18 @@ func newNSSModule(ctx context.Context, cfg Options) (*pkcs11Module, error) {
 		cleanup:    cleanup,
 		selectSlot: selectNSSSlot,
 	})
+}
+
+func formatNSSReservedConfig(profileSpec string) string {
+	return fmt.Sprintf(
+		"configdir=%s certPrefix='' keyPrefix='' secmod='secmod.db' flags=readOnly",
+		quoteNSSModuleSpecValue(profileSpec),
+	)
+}
+
+func quoteNSSModuleSpecValue(value string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(value)
+	return "'" + escaped + "'"
 }
 
 func normalizeNSSProfileDir(dir string) string {

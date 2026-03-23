@@ -23,4 +23,8 @@
 // than exposing upstream structs directly. Constructors and translation helpers
 // copy those byte slices so callers do not accidentally share mutable buffers
 // with the upstream binding.
+//
+// The surface is intentionally narrower than the full upstream binding: it only
+// exposes the PKCS#11 pieces go-certstore currently needs for certificate/key
+// enumeration and signing.
 package pkcs11
