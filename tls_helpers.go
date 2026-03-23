@@ -43,7 +43,10 @@ func FindTLSCertificate(ctx context.Context, store Store, opts SelectOptions) (*
 // selects the best matching identity for the server's request.
 //
 // Like FindTLSCertificate, this returns at most one certificate even when
-// multiple identities match. Passing nil is treated as context.Background().
+// multiple identities match. The callback reuses the supplied context on each
+// invocation; because the Go TLS hook does not expose a per-handshake context,
+// callers should typically pass a long-lived context. Passing nil is treated as
+// context.Background().
 func GetClientCertificateFunc(ctx context.Context, openOpts []Option, selectOpts SelectOptions) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	return func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 		callCtx := normalizeContext(ctx)
@@ -82,6 +85,7 @@ func findTLSCertificate(ctx context.Context, store Store, opts SelectOptions, re
 
 	for _, ident := range idents {
 		if err := ctx.Err(); err != nil {
+			closeTLSCertificate(best)
 			return nil, err
 		}
 		candidate, score, ok := tlsCertificateCandidate(ctx, ident, opts, req)
@@ -90,10 +94,13 @@ func findTLSCertificate(ctx context.Context, store Store, opts SelectOptions, re
 			continue
 		}
 		if !found || score > bestScore {
+			closeTLSCertificate(best)
 			best = candidate
 			bestScore = score
 			found = true
+			continue
 		}
+		closeTLSCertificate(candidate)
 	}
 
 	if !found {
@@ -133,11 +140,23 @@ func tlsCertificateCandidate(ctx context.Context, ident Identity, opts SelectOpt
 
 	if req != nil {
 		if err := req.SupportsCertificate(tlsCert); err != nil {
+			_ = CloseSigner(signer)
 			return nil, 0, false
 		}
 	}
 
 	return tlsCert, scoreTLSIdentity(ident, cert, opts), true
+}
+
+func closeTLSCertificate(cert *tls.Certificate) {
+	if cert == nil {
+		return
+	}
+	signer, ok := cert.PrivateKey.(crypto.Signer)
+	if !ok {
+		return
+	}
+	_ = CloseSigner(signer)
 }
 
 func matchesTLSCertificate(cert *x509.Certificate, opts SelectOptions) bool {

@@ -456,10 +456,11 @@ func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
 	}
 
 	signer := &pkcs11Signer{
-		module:  moduleRef,
-		session: session,
-		key:     key,
-		pub:     cert.PublicKey,
+		module:   moduleRef,
+		session:  session,
+		key:      key,
+		pub:      cert.PublicKey,
+		loginCtx: ctx,
 	}
 	runtime.SetFinalizer(signer, (*pkcs11Signer).release)
 	return signer, nil
@@ -580,11 +581,12 @@ func (id *pkcs11Identity) TokenSerial() string {
 }
 
 type pkcs11Signer struct {
-	mu      sync.Mutex
-	module  *pkcs11Module
-	session pkcs11.SessionHandle
-	key     pkcs11.ObjectHandle
-	pub     crypto.PublicKey
+	mu       sync.Mutex
+	module   *pkcs11Module
+	session  pkcs11.SessionHandle
+	key      pkcs11.ObjectHandle
+	pub      crypto.PublicKey
+	loginCtx context.Context
 }
 
 func (s *pkcs11Signer) Public() crypto.PublicKey {
@@ -620,7 +622,7 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 
 	if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
 		if isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
-			if loginErr := s.module.login(context.Background(), s.session); loginErr != nil {
+			if loginErr := s.module.login(s.loginCtx, s.session); loginErr != nil {
 				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, loginErr)
 			}
 			if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
@@ -634,7 +636,7 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 	sig, err := s.module.ctx.Sign(s.session, input)
 	if err != nil {
 		if isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
-			if loginErr := s.module.login(context.Background(), s.session); loginErr != nil {
+			if loginErr := s.module.login(s.loginCtx, s.session); loginErr != nil {
 				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, loginErr)
 			}
 			if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {

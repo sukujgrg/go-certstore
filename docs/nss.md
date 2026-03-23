@@ -83,6 +83,11 @@ tlsConfig := &tls.Config{
 }
 ```
 
+As with PKCS#11, token-backed signers may reuse the context passed to
+`Identity.Signer(ctx)` for later re-authentication, and
+`GetClientCertificateFunc` reuses the context provided when the callback is
+created because Go's TLS hook does not expose a per-handshake context.
+
 ## Metadata
 
 NSS identities expose:

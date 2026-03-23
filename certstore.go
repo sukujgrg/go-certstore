@@ -111,7 +111,9 @@ type Identity interface {
 	CertificateChain(ctx context.Context) ([]*x509.Certificate, error)
 
 	// Signer returns a crypto.Signer backed by this identity's private key.
-	// Passing nil is treated as context.Background().
+	// Passing nil is treated as context.Background(). Backends that need late
+	// re-authentication may retain this context because crypto.Signer.Sign does
+	// not accept one.
 	Signer(ctx context.Context) (crypto.Signer, error)
 
 	// Close releases any resources held by this identity.

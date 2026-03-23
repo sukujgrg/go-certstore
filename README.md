@@ -114,6 +114,22 @@ defer certstore.CloseSigner(signer)
 That lets backends release native handles or token sessions promptly instead of
 waiting for garbage collection.
 
+## Context Semantics
+
+All public APIs that accept `context.Context` treat `nil` as
+`context.Background()`.
+
+Two lifecycle details matter in practice:
+
+- `GetClientCertificateFunc` reuses the context you pass when the callback is
+  created, because Go's TLS callback does not provide a per-handshake context
+- token-backed signers may retain the context passed to `Identity.Signer(ctx)`
+  for later re-authentication, because `crypto.Signer.Sign` does not accept a
+  context
+
+For both cases, prefer a long-lived context unless you explicitly want
+cancellation to stop later token access.
+
 ## Scope
 
 `go-certstore` is a library for working with X.509 certificate identities that

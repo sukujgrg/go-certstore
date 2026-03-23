@@ -15,6 +15,18 @@ import (
 	"time"
 )
 
+type testCloseableSigner struct {
+	crypto.Signer
+	closeCalls *int
+}
+
+func (s *testCloseableSigner) Close() error {
+	if s.closeCalls != nil {
+		(*s.closeCalls)++
+	}
+	return nil
+}
+
 type testStore struct {
 	idents []Identity
 }
@@ -167,6 +179,77 @@ func TestFindTLSCertificateRequiresClientAuthEKU(t *testing.T) {
 
 	if _, err := FindTLSCertificate(context.Background(), store, SelectOptions{RequireClientAuthEKU: true}); err == nil {
 		t.Fatal("expected non-client-auth certificate to be rejected")
+	}
+}
+
+func TestFindTLSCertificateClosesDiscardedSignerCandidates(t *testing.T) {
+	_, _, certA, keyA := newTestChain(t, "Test CA A", true)
+	_, _, certB, keyB := newTestChain(t, "Test CA B", true)
+	_, _, certC, keyC := newTestChain(t, "Test CA C", true)
+
+	var closeA, closeB, closeC int
+	store := &testStore{
+		idents: []Identity{
+			&testIdentity{
+				cert:   certA,
+				signer: &testCloseableSigner{Signer: keyA, closeCalls: &closeA},
+				info:   testIdentityInfo{backend: BackendPKCS11, hardware: false},
+			},
+			&testIdentity{
+				cert:   certB,
+				signer: &testCloseableSigner{Signer: keyB, closeCalls: &closeB},
+				info:   testIdentityInfo{backend: BackendPKCS11, hardware: true},
+			},
+			&testIdentity{
+				cert:   certC,
+				signer: &testCloseableSigner{Signer: keyC, closeCalls: &closeC},
+				info:   testIdentityInfo{backend: BackendPKCS11, hardware: false},
+			},
+		},
+	}
+
+	got, err := FindTLSCertificate(context.Background(), store, SelectOptions{PreferHardwareBacked: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Leaf == nil || got.Leaf.SerialNumber.Cmp(certB.SerialNumber) != 0 {
+		t.Fatal("expected hardware-backed identity to win")
+	}
+	if closeA != 1 {
+		t.Fatalf("expected replaced candidate signer to be closed once, got %d", closeA)
+	}
+	if closeB != 0 {
+		t.Fatalf("expected winning candidate signer to remain open, got %d closes", closeB)
+	}
+	if closeC != 1 {
+		t.Fatalf("expected lower-ranked candidate signer to be closed once, got %d", closeC)
+	}
+}
+
+func TestFindTLSCertificateClosesSignerRejectedByCertificateRequest(t *testing.T) {
+	ca, _, leaf, key := newTestChain(t, "Test CA A", true)
+	var closes int
+
+	store := &testStore{
+		idents: []Identity{
+			&testIdentity{
+				cert:   leaf,
+				chain:  []*x509.Certificate{leaf, ca},
+				signer: &testCloseableSigner{Signer: key, closeCalls: &closes},
+			},
+		},
+	}
+
+	_, err := findTLSCertificate(context.Background(), store, SelectOptions{}, &tls.CertificateRequestInfo{
+		Version:          tls.VersionTLS13,
+		SignatureSchemes: []tls.SignatureScheme{tls.ECDSAWithP256AndSHA256},
+		AcceptableCAs:    [][]byte{[]byte("different-ca")},
+	})
+	if err == nil {
+		t.Fatal("expected ErrIdentityNotFound")
+	}
+	if closes != 1 {
+		t.Fatalf("expected rejected signer to be closed once, got %d", closes)
 	}
 }
 

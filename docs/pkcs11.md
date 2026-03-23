@@ -89,6 +89,11 @@ defer certstore.CloseSigner(signer)
 
 This is most relevant for PKCS#11 and other native-handle-backed signers.
 
+Because `crypto.Signer.Sign` does not accept a context, PKCS#11 signers may
+reuse the context passed to `Identity.Signer(ctx)` if the token requires a
+later login during signing. Prefer a long-lived context unless you want that
+later sign path to be cancelable.
+
 ## SoftHSM setup
 
 SoftHSM is useful for local development and CI because it behaves like a
@@ -276,3 +281,7 @@ tlsConfig := &tls.Config{
     ),
 }
 ```
+
+`GetClientCertificateFunc` also reuses the context supplied when you create the
+callback, because the Go TLS handshake API does not pass a per-handshake
+context into `tls.Config.GetClientCertificate`.
