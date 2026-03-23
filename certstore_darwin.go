@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"sync"
 	"unsafe"
 )
 
@@ -87,6 +88,7 @@ func (s *macStore) Close() {}
 // macIdentity implements Identity for a macOS Keychain identity.
 type macIdentity struct {
 	ref     C.SecIdentityRef
+	certMu  sync.Mutex
 	cert    *x509.Certificate
 	certRaw []byte
 	keyRef  C.SecKeyRef
@@ -141,6 +143,8 @@ func (id *macIdentity) Certificate(ctx context.Context) (*x509.Certificate, erro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	id.certMu.Lock()
+	defer id.certMu.Unlock()
 	if id.cert != nil {
 		return id.cert, nil
 	}
@@ -211,6 +215,9 @@ func (id *macIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificat
 	C.SecTrustEvaluateWithError(trust, &cfErr)
 	// We don't care if evaluation fails (self-signed, expired, etc.) —
 	// we just want the chain that was built.
+	if cfErr != 0 {
+		C.CFRelease(C.CFTypeRef(cfErr))
+	}
 
 	// Use SecTrustCopyCertificateChain (macOS 12+) instead of the deprecated
 	// SecTrustGetCertificateAtIndex.

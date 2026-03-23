@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	identityScoreHardwareBackedPreferred = 1000
+	identityScoreHardwareBackedPreferred = 100_000
 	identityScoreCurrentlyValid          = 100
 	identityScorePerDayUntilExpiry       = 1
 )

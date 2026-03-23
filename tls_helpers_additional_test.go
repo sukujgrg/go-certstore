@@ -10,6 +10,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGetClientCertificateFuncOpenError(t *testing.T) {
@@ -111,6 +112,61 @@ func TestFindTLSCertificateClosesIdentitiesOnCancellation(t *testing.T) {
 	}
 	if signerCloses != 1 {
 		t.Fatalf("winning signer closed %d times", signerCloses)
+	}
+}
+
+func TestFindTLSCertificateHardwarePreferenceDominatesLongExpiry(t *testing.T) {
+	now := time.Now()
+	_, _, softCert, softKey := newTestChainWithExpiry(t, "TLS Long CA", true, now.Add(-time.Hour), now.Add(10*365*24*time.Hour))
+	_, _, hwCert, hwKey := newTestChainWithExpiry(t, "TLS Short CA", true, now.Add(-time.Hour), now.Add(365*24*time.Hour))
+
+	store := &testStore{
+		idents: []Identity{
+			&testIdentity{
+				cert:   softCert,
+				signer: softKey,
+				info:   testIdentityInfo{backend: BackendPKCS11, hardware: false},
+			},
+			&testIdentity{
+				cert:   hwCert,
+				signer: hwKey,
+				info:   testIdentityInfo{backend: BackendPKCS11, hardware: true},
+			},
+		},
+	}
+
+	got, err := FindTLSCertificate(context.Background(), store, SelectOptions{PreferHardwareBacked: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Leaf.SerialNumber.Cmp(hwCert.SerialNumber) != 0 {
+		t.Fatal("expected hardware-backed identity to win despite shorter expiry")
+	}
+}
+
+func TestFindTLSCertificateSkipsIdentityWithSignerError(t *testing.T) {
+	_, _, certA, _ := newTestChain(t, "Signer Fail CA A", true)
+	_, _, certB, keyB := newTestChain(t, "Signer Fail CA B", true)
+
+	store := &testStore{
+		idents: []Identity{
+			&testIdentity{
+				cert:      certA,
+				signerErr: errors.New("token unavailable"),
+			},
+			&testIdentity{
+				cert:   certB,
+				signer: keyB,
+			},
+		},
+	}
+
+	got, err := FindTLSCertificate(context.Background(), store, SelectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Leaf.SerialNumber.Cmp(certB.SerialNumber) != 0 {
+		t.Fatal("expected identity with working signer to be selected")
 	}
 }
 

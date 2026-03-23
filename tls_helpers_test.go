@@ -323,6 +323,11 @@ func TestFindTLSCertificateSkipsNilChainEntries(t *testing.T) {
 
 func newTestChain(t *testing.T, caName string, clientAuth bool) (*x509.Certificate, crypto.Signer, *x509.Certificate, crypto.Signer) {
 	t.Helper()
+	return newTestChainWithExpiry(t, caName, clientAuth, time.Now().Add(-time.Hour), time.Now().Add(48*time.Hour))
+}
+
+func newTestChainWithExpiry(t *testing.T, caName string, clientAuth bool, notBefore, notAfter time.Time) (*x509.Certificate, crypto.Signer, *x509.Certificate, crypto.Signer) {
+	t.Helper()
 
 	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -333,8 +338,8 @@ func newTestChain(t *testing.T, caName string, clientAuth bool) (*x509.Certifica
 		Subject: pkix.Name{
 			CommonName: caName,
 		},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
+		NotBefore:             notBefore,
+		NotAfter:              notAfter.Add(24 * time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
@@ -361,8 +366,8 @@ func newTestChain(t *testing.T, caName string, clientAuth bool) (*x509.Certifica
 		Subject: pkix.Name{
 			CommonName: "client.example.com",
 		},
-		NotBefore:   time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().Add(48 * time.Hour),
+		NotBefore:   notBefore,
+		NotAfter:    notAfter,
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: ekus,
 	}

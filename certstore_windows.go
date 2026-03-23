@@ -49,6 +49,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"sync"
 	"unsafe"
 )
 
@@ -152,6 +153,7 @@ func (s *winStore) Close() {
 type winIdentity struct {
 	ctx        *C.CERT_CONTEXT
 	chainCerts []*x509.Certificate // parsed eagerly; see Identities()
+	certMu     sync.Mutex
 	cert       *x509.Certificate
 }
 
@@ -204,6 +206,8 @@ func (id *winIdentity) Certificate(ctx context.Context) (*x509.Certificate, erro
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	id.certMu.Lock()
+	defer id.certMu.Unlock()
 	if id.cert != nil {
 		return id.cert, nil
 	}
