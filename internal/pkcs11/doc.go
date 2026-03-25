@@ -1,18 +1,8 @@
 // Package pkcs11 is the repository's low-level PKCS#11 adapter boundary.
 //
-// The package shape intentionally takes cues from three existing Go PKCS#11
-// codebases the project may eventually draw from:
-//
-//   - ThalesGroup/crypto11 keeps higher-level token logic separate from the
-//     lower-level module/session machinery.
-//   - miekg/pkcs11/p11 wraps a raw binding in a narrower, more Go-shaped module
-//     and session layer.
-//   - google/go-pkcs11 keeps the shared-library specific binding contained in a
-//     dedicated implementation.
-//
-// This package follows the same direction: the rest of go-certstore depends on
-// a small package-owned surface, while the concrete PKCS#11 binding sits behind
-// a single implementation owned by this package.
+// This package wraps github.com/miekg/pkcs11 so that the rest of go-certstore
+// depends on a small package-owned surface, while the concrete PKCS#11 binding
+// sits behind a single implementation owned by this package.
 //
 // Today that implementation is backed by github.com/miekg/pkcs11. The point of
 // this package is not to replace that dependency immediately; it is to keep the
