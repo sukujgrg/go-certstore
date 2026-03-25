@@ -21,7 +21,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 func openPKCS11Store(ctx context.Context, cfg Options) (Store, error) {
@@ -38,7 +38,7 @@ type tokenModuleConfig struct {
 	prompt     CredentialPrompt
 	initOpts   []pkcs11.InitializeOption
 	cleanup    func()
-	selectSlot func(context.Context, *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error)
+	selectSlot func(context.Context, *pkcs11.Context) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error)
 }
 
 type pkcs11Store struct {
@@ -177,7 +177,7 @@ func (s *pkcs11Store) Close() {
 
 type pkcs11Module struct {
 	mu        sync.Mutex
-	ctx       *pkcs11.Ctx
+	ctx       *pkcs11.Context
 	backend   Backend
 	module    string
 	slotID    uint
@@ -194,7 +194,7 @@ func newPKCS11Module(ctx context.Context, cfg Options) (*pkcs11Module, error) {
 		backend:    BackendPKCS11,
 		modulePath: cfg.PKCS11Module,
 		prompt:     cfg.CredentialPrompt,
-		selectSlot: func(ctx context.Context, pkcs11Ctx *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+		selectSlot: func(ctx context.Context, pkcs11Ctx *pkcs11.Context) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
 			return selectPKCS11Slot(ctx, pkcs11Ctx, cfg.PKCS11Slot, cfg.PKCS11TokenLabel)
 		},
 	})
@@ -867,12 +867,12 @@ func hashOID(hash crypto.Hash) (asn1.ObjectIdentifier, error) {
 	}
 }
 
-func isPKCS11Error(err error, code uint) bool {
+func isPKCS11Error(err error, code pkcs11.Error) bool {
 	var pkErr pkcs11.Error
 	if !errors.As(err, &pkErr) {
 		return false
 	}
-	return uint(pkErr) == code
+	return pkErr == code
 }
 
 func cloneBytes(src []byte) []byte {

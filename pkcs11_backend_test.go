@@ -15,7 +15,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 type fakeObjectFinder struct {

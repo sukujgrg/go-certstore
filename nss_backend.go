@@ -16,7 +16,7 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 func openNSSStore(ctx context.Context, cfg Options) (Store, error) {
@@ -161,7 +161,7 @@ func (id *nssIdentity) TokenSerial() string {
 
 func newNSSModule(ctx context.Context, cfg Options) (*pkcs11Module, error) {
 	profileSpec := normalizeNSSProfileDir(cfg.NSSProfileDir)
-	reserved := C.CString(fmt.Sprintf("configdir='%s' certPrefix='' keyPrefix='' secmod='secmod.db' flags=readOnly", profileSpec))
+	reserved := C.CString(formatNSSReservedConfig(profileSpec))
 	cleanup := func() {
 		C.free(unsafe.Pointer(reserved))
 	}
@@ -178,6 +178,18 @@ func newNSSModule(ctx context.Context, cfg Options) (*pkcs11Module, error) {
 	})
 }
 
+func formatNSSReservedConfig(profileSpec string) string {
+	return fmt.Sprintf(
+		"configdir=%s certPrefix='' keyPrefix='' secmod='secmod.db' flags=readOnly",
+		quoteNSSModuleSpecValue(profileSpec),
+	)
+}
+
+func quoteNSSModuleSpecValue(value string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(value)
+	return "'" + escaped + "'"
+}
+
 func normalizeNSSProfileDir(dir string) string {
 	switch {
 	case strings.HasPrefix(dir, "sql:"):
@@ -189,7 +201,7 @@ func normalizeNSSProfileDir(dir string) string {
 	}
 }
 
-func selectNSSSlot(ctx context.Context, reader *pkcs11.Ctx) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
+func selectNSSSlot(ctx context.Context, reader *pkcs11.Context) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
 	return selectNSSSlotFromReader(ctx, reader)
 }
 

@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 func TestPKCS11SoftHSMIntegration(t *testing.T) {

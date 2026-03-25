@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/miekg/pkcs11"
+	"github.com/sukujgrg/go-certstore/internal/pkcs11"
 )
 
 func TestNormalizeNSSProfileDir(t *testing.T) {
@@ -29,6 +29,21 @@ func TestNormalizeNSSProfileDir(t *testing.T) {
 				t.Fatalf("normalizeNSSProfileDir(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFormatNSSReservedConfigEscapesProfileSpec(t *testing.T) {
+	profile := "sql:/tmp/quote'd path\\db"
+	got := formatNSSReservedConfig(profile)
+
+	if !strings.Contains(got, "configdir='sql:/tmp/quote\\'d path\\\\db'") {
+		t.Fatalf("formatNSSReservedConfig() = %q", got)
+	}
+	if !strings.Contains(got, "certPrefix=''") {
+		t.Fatalf("formatNSSReservedConfig() missing certPrefix: %q", got)
+	}
+	if !strings.Contains(got, "secmod='secmod.db'") {
+		t.Fatalf("formatNSSReservedConfig() missing secmod: %q", got)
 	}
 }
 
