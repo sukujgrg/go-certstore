@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	certstore "github.com/sukujgrg/go-certstore"
+	"github.com/sukujgrg/go-certstore/examples/internal/cli"
 )
 
 func main() {
@@ -28,41 +29,16 @@ func main() {
 	)
 	flag.Parse()
 
-	openOpts := make([]certstore.Option, 0, 4)
-	switch *backend {
-	case "auto":
-	case "pkcs11":
-		openOpts = append(openOpts, certstore.WithBackend(certstore.BackendPKCS11))
-	case "nss":
-		openOpts = append(openOpts, certstore.WithBackend(certstore.BackendNSS))
-	default:
-		fmt.Fprintf(os.Stderr, "unsupported backend %q\n", *backend)
+	openOpts, err := cli.OpenOptions(cli.OpenConfig{
+		Backend: *backend,
+		Module:  *module,
+		Profile: *profile,
+		Token:   *token,
+		PIN:     *pin,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
-	}
-	if *module != "" {
-		if *backend == "nss" {
-			openOpts = append(openOpts, certstore.WithNSSModule(*module))
-		} else {
-			openOpts = append(openOpts, certstore.WithPKCS11Module(*module))
-		}
-	}
-	if *profile != "" {
-		openOpts = append(openOpts, certstore.WithNSSProfileDir(*profile))
-	}
-	if *token != "" {
-		openOpts = append(openOpts, certstore.WithPKCS11TokenLabel(*token))
-	}
-	pinValue := *pin
-	if pinValue == "" {
-		pinValue = os.Getenv("CERTSTORE_PIN")
-	}
-	if pinValue == "" {
-		pinValue = os.Getenv("PKCS11_PIN")
-	}
-	if pinValue != "" {
-		openOpts = append(openOpts, certstore.WithCredentialPrompt(func(certstore.PromptInfo) ([]byte, error) {
-			return []byte(pinValue), nil
-		}))
 	}
 
 	selectOpts := certstore.SelectOptions{
@@ -118,7 +94,7 @@ func main() {
 		}
 		fmt.Printf("    [%d] %s -> %s\n", i, parsed.Subject.CommonName, parsed.Issuer.CommonName)
 	}
-	fmt.Println("Use certstore.GetClientCertificateFunc(ctx, ...) in a real tls.Config during an actual handshake.")
+	fmt.Println("See examples/mtls-source for the recommended Open + NewClientCertificateSource + tls.Config pattern.")
 }
 
 func explainIdentityRejections(openOpts []certstore.Option, selectOpts certstore.SelectOptions) {

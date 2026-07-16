@@ -16,6 +16,9 @@
 !examples/
 !examples/*/
 !examples/*/*.go
+!examples/internal/
+!examples/internal/*/
+!examples/internal/*/*.go
 !Makefile
 !.golangci.yml
 !scripts/

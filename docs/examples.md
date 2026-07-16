@@ -2,6 +2,11 @@
 
 Runnable example programs live under `examples/`.
 
+None of these programs perform a live TLS handshake or dial a remote server.
+Use `examples/mtls-source` as the template for long-lived `tls.Config` wiring.
+
+Shared backend flag parsing lives in `examples/internal/cli`.
+
 The examples accept `-pin`, `CERTSTORE_PIN`, or `PKCS11_PIN` when credentials
 are required.
 
@@ -20,8 +25,12 @@ provide a native Linux X.509 identity backend. Use `-backend pkcs11` or
   - Prints richer selection and rejection diagnostics
   - Supports PKCS#11 and NSS options through flags/environment
   - This example does not open a network connection
-  - It simulates local certificate selection only, so you can see which identity would be chosen before wiring `GetClientCertificateFunc(ctx, ...)` into a real `tls.Config`
-  - In a real `tls.Config`, `GetClientCertificateFunc` reuses the context you provide when the callback is created, so pass a long-lived context unless you want later token access to be cancelable
+  - It simulates local certificate selection only, so you can see which identity would be chosen before wiring `NewClientCertificateSource(ctx, store, ...)` into a real `tls.Config`
+- `examples/mtls-source`
+  - Demonstrates the recommended long-lived pattern: `Open` → `NewClientCertificateSource` → `tls.Config.GetClientCertificate` → `Close`
+  - Simulates two `GetClientCertificate` callbacks to show certificate/signer cache reuse
+  - Supports PKCS#11 and NSS options through flags/environment
+  - Does not dial a remote server
 - `examples/export-cert`
   - Select one matching identity and write the leaf certificate or full chain as PEM
   - Supports `-subject`, `-issuer`, `-chain`, and `-out`
@@ -105,6 +114,41 @@ go run ./examples/tls-client \
 For `-backend auto`, pass at least one filter such as `-subject` or `-issuer`.
 The example intentionally refuses to auto-pick an arbitrary native-store
 certificate without a filter.
+
+## Run the mTLS source example
+
+What it does:
+
+- Opens the selected backend once
+- Creates `NewClientCertificateSource` for long-lived TLS client auth
+- Builds a `tls.Config` with `GetClientCertificate: source.GetClientCertificate`
+- Calls that callback twice to show cache reuse
+- Closes the source and store
+- Does not perform a real TLS handshake
+
+Use this example as the template for token-backed mTLS clients.
+
+```sh
+export PKCS11_PIN=123456
+
+go run ./examples/mtls-source \
+  -backend pkcs11 \
+  -module "$SOFTHSM2_MODULE" \
+  -token "go-certstore-test" \
+  -subject "pkcs11-client.example.com"
+```
+
+With NSS:
+
+```sh
+export CERTSTORE_PIN=123456
+
+go run ./examples/mtls-source \
+  -backend nss \
+  -module /path/to/libsoftokn3.so \
+  -profile /path/to/nssdb \
+  -subject "client.example.com"
+```
 
 ## Run the export example
 

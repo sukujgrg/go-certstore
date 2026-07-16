@@ -47,8 +47,7 @@ type pkcs11Store struct {
 }
 
 func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 
@@ -201,8 +200,7 @@ func newPKCS11Module(ctx context.Context, cfg Options) (*pkcs11Module, error) {
 }
 
 func newTokenModule(ctx context.Context, cfg tokenModuleConfig) (*pkcs11Module, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		if cfg.cleanup != nil {
 			cfg.cleanup()
 		}
@@ -308,8 +306,7 @@ func (m *pkcs11Module) closeSession(session pkcs11.SessionHandle) {
 }
 
 func (m *pkcs11Module) login(ctx context.Context, session pkcs11.SessionHandle) error {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return err
 	}
 	if m.tokenInfo.Flags&pkcs11.CKF_LOGIN_REQUIRED == 0 {
@@ -397,8 +394,7 @@ type pkcs11Identity struct {
 }
 
 func (id *pkcs11Identity) Certificate(ctx context.Context) (*x509.Certificate, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 	id.once.Do(func() {
@@ -419,8 +415,7 @@ func (id *pkcs11Identity) CertificateChain(ctx context.Context) ([]*x509.Certifi
 }
 
 func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 
@@ -685,8 +680,7 @@ type pkcs11ObjectFinder interface {
 }
 
 func findPKCS11Objects(ctx context.Context, finder pkcs11ObjectFinder, session pkcs11.SessionHandle, template []*pkcs11.Attribute) ([]pkcs11.ObjectHandle, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 	if err := finder.FindObjectsInit(session, template); err != nil {
@@ -719,8 +713,7 @@ type pkcs11SlotReader interface {
 }
 
 func selectPKCS11Slot(ctx context.Context, reader pkcs11SlotReader, slotSelection *uint, tokenLabel string) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, err
 	}
 	slots, err := reader.GetSlotList(true)

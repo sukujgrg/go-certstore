@@ -1,10 +1,13 @@
 package certstore
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
-func normalizeContext(ctx context.Context) context.Context {
+func contextReady(ctx context.Context) error {
 	if ctx == nil {
-		return context.Background()
+		return fmt.Errorf("%w: context is required", ErrInvalidConfiguration)
 	}
-	return ctx
+	return ctx.Err()
 }

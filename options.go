@@ -68,6 +68,13 @@ type Options struct {
 	// NSSProfileDir selects an NSS profile/database directory. The library uses
 	// this profile explicitly and does not try to discover browser profiles.
 	NSSProfileDir string
+
+	// WindowsStoreLocation selects CurrentUser or LocalMachine when opening the
+	// Windows certificate store. Empty means WindowsStoreCurrentUser.
+	WindowsStoreLocation WindowsStoreLocation
+	// WindowsStoreName selects the system store name such as "MY", "Root", or
+	// "CA". Empty means "MY" (personal certificates with private keys).
+	WindowsStoreName string
 }
 
 // Option mutates Open options.
@@ -130,5 +137,21 @@ func WithNSSModule(path string) Option {
 func WithNSSProfileDir(dir string) Option {
 	return func(opts *Options) {
 		opts.NSSProfileDir = dir
+	}
+}
+
+// WithWindowsStoreLocation selects CurrentUser or LocalMachine for the Windows
+// certificate store backend. The default is WindowsStoreCurrentUser.
+func WithWindowsStoreLocation(location WindowsStoreLocation) Option {
+	return func(opts *Options) {
+		opts.WindowsStoreLocation = location
+	}
+}
+
+// WithWindowsStoreName selects the Windows system store name (for example
+// "MY", "Root", or "CA"). The default is "MY".
+func WithWindowsStoreName(name string) Option {
+	return func(opts *Options) {
+		opts.WindowsStoreName = name
 	}
 }

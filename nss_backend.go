@@ -206,8 +206,7 @@ func selectNSSSlot(ctx context.Context, reader *pkcs11.Context) (uint, pkcs11.Sl
 }
 
 func selectNSSSlotFromReader(ctx context.Context, reader pkcs11SlotReader) (uint, pkcs11.SlotInfo, pkcs11.TokenInfo, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return 0, pkcs11.SlotInfo{}, pkcs11.TokenInfo{}, err
 	}
 	slots, err := reader.GetSlotList(true)

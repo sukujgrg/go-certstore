@@ -10,6 +10,27 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          # Keep in sync with the v1-style .golangci.yml in this repository.
+          version: v1.64.8
+
   test:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -56,9 +77,13 @@ jobs:
         run: echo "C:\msys64\mingw64\bin" >> $env:GITHUB_PATH
 
       - name: Run tests
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+
+      - name: Run tests
+        if: runner.os == 'macOS'
         env:
-          CERTSTORE_RUN_NATIVE_TESTS: ${{ runner.os == 'macOS' && '1' || '' }}
+          CERTSTORE_RUN_NATIVE_TESTS: "1"
         run: go test ./...
 
       - name: Run tests (Windows)
@@ -70,10 +95,10 @@ jobs:
 
       - name: Build examples
         if: runner.os != 'Windows'
-        run: go build ./examples/list-identities ./examples/tls-client ./examples/export-cert
+        run: go build ./examples/list-identities ./examples/tls-client ./examples/mtls-source ./examples/export-cert
 
       - name: Build examples (Windows)
         if: runner.os == 'Windows'
         env:
           CC: gcc
-        run: go build ./examples/list-identities ./examples/tls-client ./examples/export-cert
+        run: go build ./examples/list-identities ./examples/tls-client ./examples/mtls-source ./examples/export-cert

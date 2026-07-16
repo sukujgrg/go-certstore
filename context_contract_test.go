@@ -101,7 +101,7 @@ func TestFilterIdentitiesClosesEachIdentityOnceWhenContextCanceled(t *testing.T)
 	idB := &countingIdentity{cert: certB, signer: signerB}
 
 	store := &contextAwareStore{t: t, idents: []Identity{idA, idB}}
-	_, err := filterStoreIdentities(ctx, store, func(*x509.Certificate) bool { return true })
+	_, err := FilterIdentities(ctx, store, func(*x509.Certificate) bool { return true })
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context cancellation, got %v", err)
 	}
@@ -208,72 +208,79 @@ func (i *capabilityOnlyIdentity) LoginRequiredState() CapabilityState {
 	return i.loginState
 }
 
-func TestNormalizeContextReturnsBackgroundForNil(t *testing.T) {
-	if normalizeContext(nil) == nil {
-		t.Fatal("expected background context for nil input")
-	}
+func rejectedNilContext() context.Context {
+	//nolint:staticcheck // Intentionally nil; tests verify nil-context rejection.
+	return nil
 }
 
-func TestFindIdentityNormalizesNilContext(t *testing.T) {
-	_, _, cert, signer := newTestChain(t, "Context CA", true)
-
+func TestNilContextRejected(t *testing.T) {
+	_, _, cert, signer := newTestChain(t, "Nil Context CA", true)
 	store := &contextAwareStore{
 		t: t,
 		idents: []Identity{
 			&contextAwareIdentity{t: t, cert: cert, signer: signer},
 		},
 	}
+	nilCtx := rejectedNilContext()
 
-	ident, err := FindIdentity(nil, store, FindIdentityOptions{
-		SubjectCN: cert.Subject.CommonName,
+	t.Run("Open", func(t *testing.T) {
+		_, err := Open(nilCtx)
+		if !errors.Is(err, ErrInvalidConfiguration) {
+			t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ident.Close()
-}
 
-func TestFindIdentitiesNormalizesNilContext(t *testing.T) {
-	_, _, cert, signer := newTestChain(t, "Context CA", true)
-
-	store := &contextAwareStore{
-		t: t,
-		idents: []Identity{
-			&contextAwareIdentity{t: t, cert: cert, signer: signer},
-		},
-	}
-
-	idents, err := FindIdentities(nil, store, FindIdentityOptions{
-		SubjectCN: cert.Subject.CommonName,
+	t.Run("FilterIdentities", func(t *testing.T) {
+		_, err := FilterIdentities(nilCtx, store, func(*x509.Certificate) bool { return true })
+		if !errors.Is(err, ErrInvalidConfiguration) {
+			t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, ident := range idents {
-		ident.Close()
-	}
-}
 
-func TestFindTLSCertificateNormalizesNilContext(t *testing.T) {
-	_, _, cert, signer := newTestChain(t, "TLS Context CA", true)
-
-	store := &contextAwareStore{
-		t: t,
-		idents: []Identity{
-			&contextAwareIdentity{t: t, cert: cert, signer: signer},
-		},
-	}
-
-	got, err := FindTLSCertificate(nil, store, SelectOptions{
-		SubjectCN:            cert.Subject.CommonName,
-		RequireClientAuthEKU: true,
+	t.Run("FindIdentity", func(t *testing.T) {
+		_, err := FindIdentity(nilCtx, store, FindIdentityOptions{
+			SubjectCN: cert.Subject.CommonName,
+		})
+		if !errors.Is(err, ErrInvalidConfiguration) {
+			t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got == nil || got.Leaf == nil {
-		t.Fatal("expected TLS certificate")
-	}
+
+	t.Run("FindIdentities", func(t *testing.T) {
+		_, err := FindIdentities(nilCtx, store, FindIdentityOptions{
+			SubjectCN: cert.Subject.CommonName,
+		})
+		if !errors.Is(err, ErrInvalidConfiguration) {
+			t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+		}
+	})
+
+	t.Run("FindTLSCertificate", func(t *testing.T) {
+		_, err := FindTLSCertificate(nilCtx, store, SelectOptions{
+			SubjectCN:            cert.Subject.CommonName,
+			RequireClientAuthEKU: true,
+		})
+		if !errors.Is(err, ErrInvalidConfiguration) {
+			t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+		}
+	})
+
+	t.Run("GetClientCertificateFunc", func(t *testing.T) {
+		getClientCertificate := GetClientCertificateFunc(nilCtx, nil, SelectOptions{})
+		_, err := getClientCertificate(&tls.CertificateRequestInfo{})
+		if !errors.Is(err, ErrInvalidConfiguration) {
+			t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+		}
+	})
+
+	t.Run("ClientCertificateSource", func(t *testing.T) {
+		source := NewClientCertificateSource(nilCtx, store, SelectOptions{})
+		defer source.Close()
+		_, err := source.GetClientCertificate(&tls.CertificateRequestInfo{})
+		if !errors.Is(err, ErrInvalidConfiguration) {
+			t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+		}
+	})
 }
 
 func TestGetClientCertificateFuncReusesSuppliedContext(t *testing.T) {
@@ -283,6 +290,31 @@ func TestGetClientCertificateFuncReusesSuppliedContext(t *testing.T) {
 	cancel()
 
 	_, err := getClientCertificate(&tls.CertificateRequestInfo{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+}
+
+func TestClientCertificateFuncReusesSuppliedContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	getClientCertificate := ClientCertificateFunc(ctx, &testStore{}, SelectOptions{})
+
+	cancel()
+
+	_, err := getClientCertificate(&tls.CertificateRequestInfo{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+}
+
+func TestClientCertificateSourceReusesSuppliedContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	source := NewClientCertificateSource(ctx, &testStore{}, SelectOptions{})
+	defer source.Close()
+
+	cancel()
+
+	_, err := source.GetClientCertificate(&tls.CertificateRequestInfo{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context cancellation, got %v", err)
 	}
