@@ -23,6 +23,10 @@ store, err := certstore.Open(ctx,
     certstore.WithBackend(certstore.BackendPKCS11),
     certstore.WithPKCS11Module("/path/to/pkcs11/module"),
 )
+if err != nil {
+    return err
+}
+defer store.Close()
 ```
 
 ## YubiKey / OpenSC
@@ -127,11 +131,11 @@ macOS (Homebrew):
 brew install softhsm
 ```
 
-Typical Homebrew paths:
+Homebrew paths:
 
 ```sh
-export SOFTHSM2_UTIL=/opt/homebrew/Cellar/softhsm/2.7.0/bin/softhsm2-util
-export SOFTHSM2_MODULE=/opt/homebrew/Cellar/softhsm/2.7.0/lib/softhsm/libsofthsm2.so
+export SOFTHSM2_UTIL="$(brew --prefix softhsm)/bin/softhsm2-util"
+export SOFTHSM2_MODULE="$(brew --prefix softhsm)/lib/softhsm/libsofthsm2.so"
 ```
 
 Linux:
@@ -268,30 +272,62 @@ The repository also contains a full runnable integration test:
 
 - [pkcs11_integration_test.go](../pkcs11_integration_test.go)
 
+Runnable SoftHSM examples:
+
+```sh
+export PKCS11_PIN=123456
+
+go run ./examples/list-identities \
+  -backend pkcs11 \
+  -module "$SOFTHSM2_MODULE" \
+  -token "go-certstore-test"
+
+go run ./examples/mtls-source \
+  -backend pkcs11 \
+  -module "$SOFTHSM2_MODULE" \
+  -token "go-certstore-test" \
+  -subject "pkcs11-client.example.com"
+```
+
+See [examples.md](examples.md) for `tls-client` and `export-cert` as well.
+
 ## TLS helper flow
 
-For TLS client authentication, prefer the helper:
+For TLS client authentication, open the store once and use
+`NewClientCertificateSource` so handshakes reuse cached certificate/signer
+sessions:
 
 ```go
+store, err := certstore.Open(ctx,
+    certstore.WithBackend(certstore.BackendPKCS11),
+    certstore.WithPKCS11Module(os.Getenv("SOFTHSM2_MODULE")),
+    certstore.WithPKCS11TokenLabel("go-certstore-test"),
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+        return []byte(os.Getenv("PKCS11_PIN")), nil
+    }),
+)
+if err != nil {
+    return err
+}
+defer store.Close()
+
+source := certstore.NewClientCertificateSource(ctx, store, certstore.SelectOptions{
+    RequireClientAuthEKU: true,
+    PreferHardwareBacked: true,
+})
+defer source.Close()
+
 tlsConfig := &tls.Config{
-    GetClientCertificate: certstore.GetClientCertificateFunc(
-        ctx,
-        []certstore.Option{
-            certstore.WithBackend(certstore.BackendPKCS11),
-            certstore.WithPKCS11Module(os.Getenv("SOFTHSM2_MODULE")),
-            certstore.WithPKCS11TokenLabel("go-certstore-test"),
-            certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
-                return []byte(os.Getenv("PKCS11_PIN")), nil
-            }),
-        },
-        certstore.SelectOptions{
-            RequireClientAuthEKU: true,
-            PreferHardwareBacked: true,
-        },
-    ),
+    GetClientCertificate: source.GetClientCertificate,
 }
 ```
 
-`GetClientCertificateFunc` also reuses the context supplied when you create the
-callback, because the Go TLS handshake API does not pass a per-handshake
-context into `tls.Config.GetClientCertificate`.
+Prefer this over `GetClientCertificateFunc`, which reopens the PKCS#11 module on
+every handshake and can leave token sessions waiting on GC. The source caches
+returned certificates across handshakes, skips expired cache entries when
+selecting again, and keeps previously returned signers alive until `Close` for
+in-flight handshakes. It does not watch the token for replaced identities;
+recreate the source, or keep process lifetime aligned with certificate
+lifetime, when rotation must be picked up. It also reuses the context supplied
+when you create the source, because the Go TLS handshake API does not pass a
+per-handshake context into `tls.Config.GetClientCertificate`.

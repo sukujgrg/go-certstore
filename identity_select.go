@@ -40,10 +40,9 @@ type FindIdentityOptions struct {
 // metadata filters. Non-matching identities are closed before returning.
 //
 // It returns all matches. Use FindIdentity if you want a single best-ranked
-// identity instead. Passing nil is treated as context.Background().
+// identity instead. ctx must not be nil.
 func FindIdentities(ctx context.Context, store Store, opts FindIdentityOptions) ([]Identity, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 	if store == nil {
@@ -84,9 +83,11 @@ func FindIdentities(ctx context.Context, store Store, opts FindIdentityOptions) 
 // to be hardware-backed above other matches when PreferHardwareBacked is set,
 // gives a smaller bonus to currently valid certificates, and also favors later
 // expiry. This is a scoring heuristic, not a strict lexicographic ordering.
-// Passing nil is treated as context.Background().
+// ctx must not be nil.
 func FindIdentity(ctx context.Context, store Store, opts FindIdentityOptions) (Identity, error) {
-	ctx = normalizeContext(ctx)
+	if err := contextReady(ctx); err != nil {
+		return nil, err
+	}
 	idents, err := FindIdentities(ctx, store, opts)
 	if err != nil {
 		return nil, err

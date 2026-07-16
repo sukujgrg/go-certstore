@@ -8,7 +8,7 @@ import (
 // Open opens the configured identity backend.
 //
 // The context controls cancellation while the library resolves and initializes
-// the requested backend. Passing nil is treated as context.Background().
+// the requested backend. It must not be nil.
 //
 // With no options, Open preserves the current platform-default behavior by
 // opening the native backend for the current OS.
@@ -19,11 +19,13 @@ import (
 //     which still requires an explicit module path
 //   - any NSS option switches resolution to the NSS backend family, which
 //     still requires both an explicit softokn3 module path and profile
+//   - on Windows, WithWindowsStoreLocation / WithWindowsStoreName select which
+//     system store to open (default CurrentUser "MY")
+//   - Windows store options cannot be combined with PKCS#11 or NSS options
 //
 // Use WithBackend to force a specific backend.
 func Open(ctx context.Context, opts ...Option) (Store, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 
@@ -59,7 +61,7 @@ func Open(ctx context.Context, opts ...Option) (Store, error) {
 			}
 			return openNSSStore(ctx, cfg)
 		}
-		return openNativeStore()
+		return openNativeStore(cfg)
 	case BackendPKCS11:
 		return openPKCS11Store(ctx, cfg)
 	case BackendNSS:
@@ -67,7 +69,7 @@ func Open(ctx context.Context, opts ...Option) (Store, error) {
 	}
 
 	if native := currentNativeBackend(); native != "" && cfg.Backend == native {
-		return openNativeStore()
+		return openNativeStore(cfg)
 	}
 
 	return nil, fmt.Errorf("%w: backend %q is not available on this platform", ErrUnsupportedBackend, cfg.Backend)
@@ -90,9 +92,21 @@ func validateOptions(cfg Options) error {
 		return fmt.Errorf("%w: NSS options require backend %q or %q", ErrUnsupportedBackend, BackendAuto, BackendNSS)
 	}
 
+	if hasWindowsConfig(cfg) {
+		if cfg.Backend != BackendAuto && cfg.Backend != BackendWindows {
+			return fmt.Errorf("%w: Windows store options require backend %q or %q", ErrUnsupportedBackend, BackendAuto, BackendWindows)
+		}
+		if _, _, err := resolveWindowsStoreConfig(cfg); err != nil {
+			return err
+		}
+	}
+
 	if cfg.Backend == BackendAuto {
 		if hasNSSConfig(cfg) && hasPKCS11Config(cfg) {
 			return fmt.Errorf("%w: PKCS#11 and NSS options cannot be combined under backend %q", ErrUnsupportedBackend, BackendAuto)
+		}
+		if hasWindowsConfig(cfg) && (hasPKCS11Config(cfg) || hasNSSConfig(cfg)) {
+			return fmt.Errorf("%w: Windows store options cannot be combined with PKCS#11 or NSS options under backend %q", ErrUnsupportedBackend, BackendAuto)
 		}
 		if hasPKCS11Config(cfg) && cfg.PKCS11Module == "" {
 			return fmt.Errorf("%w: pkcs11 module path is required", ErrInvalidConfiguration)

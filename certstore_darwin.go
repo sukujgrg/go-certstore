@@ -30,7 +30,10 @@ import (
 import "C"
 
 // openNativeStore opens the macOS Keychain and returns a Store for enumerating identities.
-func openNativeStore() (Store, error) {
+func openNativeStore(cfg Options) (Store, error) {
+	if hasWindowsConfig(cfg) {
+		return nil, fmt.Errorf("%w: windows certificate store options are only supported on windows", ErrUnsupportedBackend)
+	}
 	return &macStore{}, nil
 }
 
@@ -38,8 +41,7 @@ func openNativeStore() (Store, error) {
 type macStore struct{}
 
 func (s *macStore) Identities(ctx context.Context) ([]Identity, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 
@@ -141,8 +143,7 @@ func (id *macIdentity) URI() string {
 }
 
 func (id *macIdentity) Certificate(ctx context.Context) (*x509.Certificate, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 	id.certMu.Lock()
@@ -182,8 +183,7 @@ func (id *macIdentity) Certificate(ctx context.Context) (*x509.Certificate, erro
 }
 
 func (id *macIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificate, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 
@@ -265,8 +265,7 @@ func (id *macIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificat
 }
 
 func (id *macIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 

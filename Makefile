@@ -1,7 +1,7 @@
 GOCACHE ?= $(CURDIR)/.gocache
 GO ?= go
 LIB_COVER ?= .cover.out
-EXAMPLES := ./examples/list-identities ./examples/tls-client ./examples/export-cert
+EXAMPLES := ./examples/list-identities ./examples/tls-client ./examples/mtls-source ./examples/export-cert
 PKGSITE ?= pkgsite
 GOLANGCI_LINT ?= golangci-lint
 DOC_ADDR ?= localhost:6060

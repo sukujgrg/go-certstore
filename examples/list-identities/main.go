@@ -5,10 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	certstore "github.com/sukujgrg/go-certstore"
+	"github.com/sukujgrg/go-certstore/examples/internal/cli"
 )
 
 func main() {
@@ -24,40 +24,15 @@ func main() {
 	)
 	flag.Parse()
 
-	openOpts := make([]certstore.Option, 0, 4)
-	switch *backend {
-	case "auto":
-	case "pkcs11":
-		openOpts = append(openOpts, certstore.WithBackend(certstore.BackendPKCS11))
-	case "nss":
-		openOpts = append(openOpts, certstore.WithBackend(certstore.BackendNSS))
-	default:
-		log.Fatalf("unsupported backend %q", *backend)
-	}
-	if *module != "" {
-		if *backend == "nss" {
-			openOpts = append(openOpts, certstore.WithNSSModule(*module))
-		} else {
-			openOpts = append(openOpts, certstore.WithPKCS11Module(*module))
-		}
-	}
-	if *profile != "" {
-		openOpts = append(openOpts, certstore.WithNSSProfileDir(*profile))
-	}
-	if *token != "" {
-		openOpts = append(openOpts, certstore.WithPKCS11TokenLabel(*token))
-	}
-	pinValue := *pin
-	if pinValue == "" {
-		pinValue = os.Getenv("CERTSTORE_PIN")
-	}
-	if pinValue == "" {
-		pinValue = os.Getenv("PKCS11_PIN")
-	}
-	if pinValue != "" {
-		openOpts = append(openOpts, certstore.WithCredentialPrompt(func(certstore.PromptInfo) ([]byte, error) {
-			return []byte(pinValue), nil
-		}))
+	openOpts, err := cli.OpenOptions(cli.OpenConfig{
+		Backend: *backend,
+		Module:  *module,
+		Profile: *profile,
+		Token:   *token,
+		PIN:     *pin,
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	ctx := context.Background()
@@ -68,14 +43,10 @@ func main() {
 	defer store.Close()
 
 	findOpts := certstore.FindIdentityOptions{
+		Backend:   cli.FindBackend(*backend),
 		SubjectCN: *subject,
 		IssuerCN:  *issuer,
 		ValidOnly: *valid,
-	}
-	if *backend == "pkcs11" {
-		findOpts.Backend = certstore.BackendPKCS11
-	} else if *backend == "nss" {
-		findOpts.Backend = certstore.BackendNSS
 	}
 
 	idents, err := certstore.FindIdentities(ctx, store, findOpts)

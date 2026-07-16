@@ -5,23 +5,24 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"testing"
 	"time"
 )
 
-func TestFilterStoreIdentitiesRejectsNilFilter(t *testing.T) {
+func TestFilterIdentitiesRejectsNilFilter(t *testing.T) {
 	store := &testStore{}
 
-	_, err := filterStoreIdentities(context.Background(), store, nil)
+	_, err := FilterIdentities(context.Background(), store, nil)
 	if !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
 	}
 }
 
-func TestFilterStoreIdentitiesRejectsNilStore(t *testing.T) {
-	_, err := filterStoreIdentities(context.Background(), nil, func(*x509.Certificate) bool { return true })
+func TestFilterIdentitiesRejectsNilStore(t *testing.T) {
+	_, err := FilterIdentities(context.Background(), nil, func(*x509.Certificate) bool { return true })
 	if !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
 	}
@@ -41,12 +42,29 @@ func TestFindTLSCertificateRejectsNilStore(t *testing.T) {
 	}
 }
 
-func TestFilterStoreIdentitiesSkipsNilIdentityWithoutPanic(t *testing.T) {
+func TestClientCertificateFuncRejectsNilStore(t *testing.T) {
+	getClientCertificate := ClientCertificateFunc(context.Background(), nil, SelectOptions{})
+	_, err := getClientCertificate(&tls.CertificateRequestInfo{})
+	if !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+	}
+}
+
+func TestClientCertificateSourceRejectsNilStore(t *testing.T) {
+	source := NewClientCertificateSource(context.Background(), nil, SelectOptions{})
+	defer source.Close()
+	_, err := source.GetClientCertificate(&tls.CertificateRequestInfo{})
+	if !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("expected ErrInvalidConfiguration, got %v", err)
+	}
+}
+
+func TestFilterIdentitiesSkipsNilIdentityWithoutPanic(t *testing.T) {
 	store := &testStore{
 		idents: []Identity{nil},
 	}
 
-	idents, err := filterStoreIdentities(context.Background(), store, func(*x509.Certificate) bool { return true })
+	idents, err := FilterIdentities(context.Background(), store, func(*x509.Certificate) bool { return true })
 	if err != nil {
 		t.Fatal(err)
 	}

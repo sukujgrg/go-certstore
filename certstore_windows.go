@@ -53,14 +53,43 @@ import (
 	"unsafe"
 )
 
-// openNativeStore opens the Windows "MY" certificate store for the current user.
-func openNativeStore() (Store, error) {
-	storeName := C.CString("MY")
-	defer C.free(unsafe.Pointer(storeName))
+// openNativeStore opens a Windows system certificate store.
+//
+// Defaults match the historical behavior: CurrentUser\MY. Callers can select
+// LocalMachine and/or another system store name through Options.
+func openNativeStore(cfg Options) (Store, error) {
+	location, storeName, err := resolveWindowsStoreConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 
-	h := C.CertOpenSystemStoreA(0, storeName)
+	var locationFlag C.DWORD
+	switch location {
+	case WindowsStoreCurrentUser:
+		locationFlag = C.CERT_SYSTEM_STORE_CURRENT_USER
+	case WindowsStoreLocalMachine:
+		locationFlag = C.CERT_SYSTEM_STORE_LOCAL_MACHINE
+	default:
+		return nil, fmt.Errorf("%w: windows store location %q is unknown", ErrInvalidConfiguration, location)
+	}
+
+	nameUTF16, err := utf16PtrFromString(storeName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use SYSTEM_W explicitly: CERT_STORE_PROV_SYSTEM is a UNICODE-dependent
+	// alias that may resolve to SYSTEM_A, which expects an ANSI pvPara.
+	flags := locationFlag | C.CERT_STORE_READONLY_FLAG | C.CERT_STORE_OPEN_EXISTING_FLAG
+	h := C.CertOpenStore(
+		C.CERT_STORE_PROV_SYSTEM_W,
+		0,
+		0,
+		flags,
+		unsafe.Pointer(&nameUTF16[0]),
+	)
 	if h == nil {
-		return nil, lastError("CertOpenSystemStore")
+		return nil, fmt.Errorf("open windows store %s\\%s: %w", location, storeName, lastError("CertOpenStore"))
 	}
 	return &winStore{h: h}, nil
 }
@@ -70,8 +99,7 @@ type winStore struct {
 }
 
 func (s *winStore) Identities(ctx context.Context) ([]Identity, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 
@@ -203,8 +231,7 @@ func (id *winIdentity) URI() string {
 }
 
 func (id *winIdentity) Certificate(ctx context.Context) (*x509.Certificate, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 	id.certMu.Lock()
@@ -223,8 +250,7 @@ func (id *winIdentity) Certificate(ctx context.Context) (*x509.Certificate, erro
 }
 
 func (id *winIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificate, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 	if len(id.chainCerts) > 0 {
@@ -238,8 +264,7 @@ func (id *winIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificat
 }
 
 func (id *winIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 

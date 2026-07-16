@@ -61,32 +61,45 @@ if err != nil {
 defer ident.Close()
 ```
 
-For TLS client selection:
+For TLS client selection, open the store once and use
+`NewClientCertificateSource` so handshakes reuse cached certificate/signer
+sessions:
 
 ```go
+store, err := certstore.Open(ctx,
+    certstore.WithBackend(certstore.BackendNSS),
+    certstore.WithNSSModule("/path/to/libsoftokn3.so"),
+    certstore.WithNSSProfileDir("/path/to/nssdb"),
+    certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
+        return []byte(os.Getenv("CERTSTORE_PIN")), nil
+    }),
+)
+if err != nil {
+    return err
+}
+defer store.Close()
+
+source := certstore.NewClientCertificateSource(ctx, store, certstore.SelectOptions{
+    SubjectCN:            "client.example.com",
+    RequireClientAuthEKU: true,
+})
+defer source.Close()
+
 tlsConfig := &tls.Config{
-    GetClientCertificate: certstore.GetClientCertificateFunc(
-        ctx,
-        []certstore.Option{
-            certstore.WithBackend(certstore.BackendNSS),
-            certstore.WithNSSModule("/path/to/libsoftokn3.so"),
-            certstore.WithNSSProfileDir("/path/to/nssdb"),
-            certstore.WithCredentialPrompt(func(info certstore.PromptInfo) ([]byte, error) {
-                return []byte(os.Getenv("CERTSTORE_PIN")), nil
-            }),
-        },
-        certstore.SelectOptions{
-            SubjectCN:            "client.example.com",
-            RequireClientAuthEKU: true,
-        },
-    ),
+    GetClientCertificate: source.GetClientCertificate,
 }
 ```
 
-As with PKCS#11, token-backed signers may reuse the context passed to
-`Identity.Signer(ctx)` for later re-authentication, and
-`GetClientCertificateFunc` reuses the context provided when the callback is
-created because Go's TLS hook does not expose a per-handshake context.
+Prefer this over `GetClientCertificateFunc`, which reopens NSS on every
+handshake and can leave token sessions waiting on GC. The source caches returned
+certificates across handshakes, skips expired cache entries when selecting
+again, and keeps previously returned signers alive until `Close` for in-flight
+handshakes. It does not watch the profile for replaced identities; recreate the
+source, or keep process lifetime aligned with certificate lifetime, when
+rotation must be picked up. As with PKCS#11, token-backed signers may reuse the
+context passed to `Identity.Signer(ctx)` for later re-authentication, and the
+source reuses the context provided at construction because Go's TLS hook does
+not expose a per-handshake context.
 
 ## Metadata
 
@@ -123,6 +136,16 @@ Inspect TLS selection:
 
 ```sh
 go run ./examples/tls-client \
+  -backend nss \
+  -module /path/to/libsoftokn3.so \
+  -profile /path/to/nssdb \
+  -subject "client.example.com"
+```
+
+Recommended long-lived mTLS source:
+
+```sh
+go run ./examples/mtls-source \
   -backend nss \
   -module /path/to/libsoftokn3.so \
   -profile /path/to/nssdb \
@@ -231,6 +254,14 @@ go run ./examples/list-identities \
 
 ```sh
 go run ./examples/tls-client \
+  -backend nss \
+  -module /path/to/libsoftokn3.so_or_dylib \
+  -profile /tmp/nssdb \
+  -subject "nss-client.example.com"
+```
+
+```sh
+go run ./examples/mtls-source \
   -backend nss \
   -module /path/to/libsoftokn3.so_or_dylib \
   -profile /tmp/nssdb \

@@ -12,6 +12,8 @@ func TestOptionSetters(t *testing.T) {
 	WithCredentialPrompt(func(PromptInfo) ([]byte, error) { return []byte("5678"), nil })(&opts)
 	WithNSSModule("/tmp/libsoftokn3.so")(&opts)
 	WithNSSProfileDir("/tmp/nss-profile")(&opts)
+	WithWindowsStoreLocation(WindowsStoreLocalMachine)(&opts)
+	WithWindowsStoreName("CA")(&opts)
 
 	if opts.Backend != BackendPKCS11 {
 		t.Fatalf("Backend = %q", opts.Backend)
@@ -33,5 +35,11 @@ func TestOptionSetters(t *testing.T) {
 	}
 	if opts.NSSProfileDir != "/tmp/nss-profile" {
 		t.Fatalf("NSSProfileDir = %q", opts.NSSProfileDir)
+	}
+	if opts.WindowsStoreLocation != WindowsStoreLocalMachine {
+		t.Fatalf("WindowsStoreLocation = %q", opts.WindowsStoreLocation)
+	}
+	if opts.WindowsStoreName != "CA" {
+		t.Fatalf("WindowsStoreName = %q", opts.WindowsStoreName)
 	}
 }

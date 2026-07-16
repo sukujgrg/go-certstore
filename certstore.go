@@ -23,7 +23,7 @@
 //
 // Platform support:
 //   - macOS: Keychain via Security.framework (CGo required)
-//   - Windows: CertStore via CNG/CryptoAPI (CGo required)
+//   - Windows: CertStore via CNG/CryptoAPI (CGo required; CurrentUser/LocalMachine and store name selectable)
 //   - Any platform with CGo: PKCS#11 via explicit module path
 //   - Any platform with CGo: NSS via explicit softokn3 module path and profile
 //   - Linux native store: returns an error (no standard system client-cert store)
@@ -40,30 +40,21 @@ import (
 // Return true to include the identity in the result.
 type FilterFunc func(*x509.Certificate) bool
 
-// FilterIdentities opens the store, applies the filter to each identity's
-// certificate, and returns matching identities. The caller must Close each
-// returned identity when done. The store is closed before returning. The
-// filter must be non-nil.
+// FilterIdentities applies filter to each identity's certificate and returns
+// matching identities. Non-matching identities are closed before returning.
+// The caller must Close each returned identity when done, and is responsible
+// for closing store.
 //
-// The context controls cancellation while opening the store, listing
-// identities, and loading their certificates. Passing nil is treated as
-// context.Background().
-func FilterIdentities(ctx context.Context, filter FilterFunc) ([]Identity, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+// Unlike FindIdentities, this accepts an arbitrary certificate predicate
+// instead of structured FindIdentityOptions. Prefer FindIdentities when the
+// built-in filters are enough.
+//
+// The context controls cancellation while listing identities and loading their
+// certificates. It must not be nil.
+func FilterIdentities(ctx context.Context, store Store, filter FilterFunc) ([]Identity, error) {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
-
-	store, err := Open(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("open store: %w", err)
-	}
-	defer store.Close()
-
-	return filterStoreIdentities(ctx, store, filter)
-}
-
-func filterStoreIdentities(ctx context.Context, store Store, filter FilterFunc) ([]Identity, error) {
 	if filter == nil {
 		return nil, fmt.Errorf("%w: filter is required", ErrInvalidConfiguration)
 	}
@@ -104,7 +95,7 @@ func filterStoreIdentities(ctx context.Context, store Store, filter FilterFunc) 
 // Store represents an open handle to a certificate-identity backend.
 type Store interface {
 	// Identities returns all identities (certificate + private key pairs)
-	// available in the store. Passing nil is treated as context.Background().
+	// available in the store. ctx must not be nil.
 	Identities(ctx context.Context) ([]Identity, error)
 
 	// Close releases any resources held by the store.
@@ -113,17 +104,16 @@ type Store interface {
 
 // Identity represents a single certificate and its associated private key.
 type Identity interface {
-	// Certificate returns the leaf certificate for this identity. Passing nil is
-	// treated as context.Background().
+	// Certificate returns the leaf certificate for this identity. ctx must not
+	// be nil.
 	Certificate(ctx context.Context) (*x509.Certificate, error)
 
 	// CertificateChain returns the full certificate chain for this identity,
-	// starting with the leaf certificate. Passing nil is treated as
-	// context.Background().
+	// starting with the leaf certificate. ctx must not be nil.
 	CertificateChain(ctx context.Context) ([]*x509.Certificate, error)
 
 	// Signer returns a crypto.Signer backed by this identity's private key.
-	// Passing nil is treated as context.Background(). Backends that need late
+	// ctx must not be nil. Backends that need late
 	// re-authentication may retain this context because crypto.Signer.Sign does
 	// not accept one.
 	Signer(ctx context.Context) (crypto.Signer, error)

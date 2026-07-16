@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,10 @@ type SelectOptions struct {
 	// ExtKeyUsage extensions are treated as unrestricted per X.509 semantics
 	// and are accepted.
 	RequireClientAuthEKU bool
+	// RequireCurrentlyValid rejects certificates outside NotBefore/NotAfter.
+	// ClientCertificateSource always enables this so expired identities are not
+	// re-selected and cached after an expired cache entry is skipped.
+	RequireCurrentlyValid bool
 	PreferHardwareBacked bool
 }
 
@@ -39,33 +44,175 @@ type SelectOptions struct {
 // If more than one identity matches, it returns the highest-ranked candidate
 // according to SelectOptions and internal scoring. Use FindIdentities or direct
 // store enumeration if you need to inspect multiple matches instead of a single
-// winner. Passing nil is treated as context.Background().
+// winner. ctx must not be nil.
 func FindTLSCertificate(ctx context.Context, store Store, opts SelectOptions) (*tls.Certificate, error) {
 	return findTLSCertificate(ctx, store, opts, nil)
+}
+
+// ClientCertificateSource selects client certificates from an open store and
+// caches them for reuse across TLS handshakes.
+//
+// crypto/tls does not close tls.Certificate.PrivateKey, so returning a fresh
+// PKCS#11/NSS signer on every handshake can exhaust token sessions until GC.
+// This type retains previously returned certificates and reuses one when it
+// still satisfies the server's CertificateRequestInfo and is currently valid.
+// Expired or not-yet-valid cached certificates are skipped (not closed) so a
+// newer valid identity can be selected; selection itself requires a currently
+// valid leaf so an expired store identity is not re-opened and appended on
+// every handshake. Previously returned signers stay alive until Close for
+// in-flight handshakes.
+//
+// Cache reuse does not detect store rotation (a replaced identity in Keychain,
+// CertStore, or a token). Callers that need to pick up replacements should
+// recreate the source, or keep process lifetime aligned with certificate
+// lifetime.
+//
+// Call Close when the TLS client or server is done so cached signer sessions
+// are released deterministically. Prefer this over ClientCertificateFunc when
+// you need explicit cleanup.
+type ClientCertificateSource struct {
+	ctx   context.Context
+	store Store
+	opts  SelectOptions
+
+	mu     sync.Mutex
+	cached []*tls.Certificate
+	closed bool
+}
+
+// NewClientCertificateSource returns a TLS client-certificate source for store.
+// The caller must Close the source when finished. ctx must not be nil.
+func NewClientCertificateSource(ctx context.Context, store Store, opts SelectOptions) *ClientCertificateSource {
+	return &ClientCertificateSource{
+		ctx:   ctx,
+		store: store,
+		opts:  opts,
+	}
+}
+
+// GetClientCertificate is suitable for tls.Config.GetClientCertificate.
+//
+// It reuses a previously selected certificate when that certificate is still
+// within its validity window and satisfies info, avoiding a new token session
+// per handshake. Otherwise it selects another certificate and keeps prior
+// returns alive until Close.
+func (s *ClientCertificateSource) GetClientCertificate(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return nil, ErrClosed
+	}
+	if err := contextReady(s.ctx); err != nil {
+		return nil, err
+	}
+	if s.store == nil {
+		return nil, fmt.Errorf("%w: store is required", ErrInvalidConfiguration)
+	}
+
+	now := time.Now()
+	for _, cert := range s.cached {
+		if cachedCertificateReusable(cert, info, now) {
+			return cert, nil
+		}
+	}
+
+	// Require a currently valid leaf so skipping an expired cache entry cannot
+	// re-select the same expired store identity and append another signer.
+	opts := s.opts
+	opts.RequireCurrentlyValid = true
+	cert, err := findTLSCertificate(s.ctx, s.store, opts, info)
+	if err != nil {
+		return nil, err
+	}
+	if cert.Leaf == nil || !isCertificateCurrentlyValid(cert.Leaf, now) {
+		closeTLSCertificate(cert)
+		return nil, ErrIdentityNotFound
+	}
+	s.cached = append(s.cached, cert)
+	return cert, nil
+}
+
+// Close releases all cached signer resources. It is safe to call more than once.
+func (s *ClientCertificateSource) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	for _, cert := range s.cached {
+		closeTLSCertificate(cert)
+	}
+	s.cached = nil
+	return nil
+}
+
+// ClientCertificateFunc returns a callback suitable for
+// tls.Config.GetClientCertificate that selects from an already-open store and
+// caches returned certificates across handshakes.
+//
+// Prefer this over GetClientCertificateFunc for PKCS#11 and NSS: the caller
+// owns store lifetime and avoids reopening the backend on every handshake.
+// The callback reuses a compatible cached certificate/signer so token sessions
+// are not created per handshake, and keeps previously returned certificates
+// alive until the underlying source is closed.
+//
+// For deterministic signer cleanup, prefer NewClientCertificateSource and call
+// Close when the TLS client or server shuts down. This convenience wrapper keeps
+// the cache alive with the returned function but does not expose Close.
+//
+// The callback reuses the supplied context on each invocation; because the Go
+// TLS hook does not expose a per-handshake context, callers should typically
+// pass a long-lived context. ctx must not be nil.
+func ClientCertificateFunc(ctx context.Context, store Store, selectOpts SelectOptions) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	return NewClientCertificateSource(ctx, store, selectOpts).GetClientCertificate
 }
 
 // GetClientCertificateFunc returns a callback suitable for
 // tls.Config.GetClientCertificate. It opens the store on each invocation and
 // selects the best matching identity for the server's request.
 //
+// This is convenient for short-lived native-store use, but reopen cost is
+// painful for PKCS#11 and NSS. Prefer NewClientCertificateSource or
+// ClientCertificateFunc with a long-lived store for token backends.
+//
 // Like FindTLSCertificate, this returns at most one certificate even when
 // multiple identities match. The callback reuses the supplied context on each
 // invocation; because the Go TLS hook does not expose a per-handshake context,
-// callers should typically pass a long-lived context. Passing nil is treated as
-// context.Background().
+// callers should typically pass a long-lived context. ctx must not be nil.
 func GetClientCertificateFunc(ctx context.Context, openOpts []Option, selectOpts SelectOptions) func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	return func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-		callCtx := normalizeContext(ctx)
-		if err := callCtx.Err(); err != nil {
+		if err := contextReady(ctx); err != nil {
 			return nil, err
 		}
-		store, err := Open(callCtx, openOpts...)
+		store, err := Open(ctx, openOpts...)
 		if err != nil {
 			return nil, err
 		}
 		defer store.Close()
-		return findTLSCertificate(callCtx, store, selectOpts, info)
+		return findTLSCertificate(ctx, store, selectOpts, info)
 	}
+}
+
+func cachedCertificateReusable(cert *tls.Certificate, info *tls.CertificateRequestInfo, now time.Time) bool {
+	if cert == nil || cert.Leaf == nil {
+		return false
+	}
+	if !isCertificateCurrentlyValid(cert.Leaf, now) {
+		return false
+	}
+	return certificateSatisfiesRequest(cert, info)
+}
+
+func certificateSatisfiesRequest(cert *tls.Certificate, info *tls.CertificateRequestInfo) bool {
+	if cert == nil {
+		return false
+	}
+	if info == nil {
+		return true
+	}
+	return info.SupportsCertificate(cert) == nil
 }
 
 type supportedSignatureAlgorithmProvider interface {
@@ -73,8 +220,7 @@ type supportedSignatureAlgorithmProvider interface {
 }
 
 func findTLSCertificate(ctx context.Context, store Store, opts SelectOptions, req *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-	ctx = normalizeContext(ctx)
-	if err := ctx.Err(); err != nil {
+	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
 	if store == nil {
@@ -187,6 +333,9 @@ func matchesTLSCertificate(cert *x509.Certificate, opts SelectOptions) bool {
 		return false
 	}
 	if opts.RequireClientAuthEKU && !hasClientAuthEKU(cert) {
+		return false
+	}
+	if opts.RequireCurrentlyValid && !isCertificateCurrentlyValid(cert, time.Now()) {
 		return false
 	}
 	return true
