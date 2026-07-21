@@ -8,6 +8,7 @@ import (
 
 var errUninitializedContext = errors.New("pkcs11: context is nil or uninitialized")
 
+// New returns an uninitialized PKCS#11 context for the module at path.
 func New(path string) *Context {
 	return newWithBackend(path, defaultBackend)
 }
@@ -23,6 +24,7 @@ func newWithBackend(path string, b backend) *Context {
 	return &Context{mod: mod}
 }
 
+// NewPSSParams encodes parameters for the CKM_RSA_PKCS_PSS mechanism.
 func NewPSSParams(hashAlg, mgf, saltLength uint) []byte {
 	if isNilValue(defaultBackend) {
 		return nil
@@ -30,6 +32,7 @@ func NewPSSParams(hashAlg, mgf, saltLength uint) []byte {
 	return defaultBackend.newPSSParams(hashAlg, mgf, saltLength)
 }
 
+// Initialize initializes the PKCS#11 module.
 func (c *Context) Initialize(opts ...InitializeOption) error {
 	mod, err := c.module()
 	if err != nil {
@@ -38,6 +41,7 @@ func (c *Context) Initialize(opts ...InitializeOption) error {
 	return mod.Initialize(opts...)
 }
 
+// Finalize finalizes the PKCS#11 module.
 func (c *Context) Finalize() error {
 	mod, err := c.module()
 	if err != nil {
@@ -46,6 +50,7 @@ func (c *Context) Finalize() error {
 	return mod.Finalize()
 }
 
+// Destroy releases the underlying PKCS#11 module wrapper.
 func (c *Context) Destroy() {
 	mod, err := c.module()
 	if err != nil {
@@ -54,6 +59,7 @@ func (c *Context) Destroy() {
 	mod.Destroy()
 }
 
+// OpenSession opens a session on slotID with the supplied PKCS#11 flags.
 func (c *Context) OpenSession(slotID uint, flags uint) (SessionHandle, error) {
 	mod, err := c.module()
 	if err != nil {
@@ -62,6 +68,7 @@ func (c *Context) OpenSession(slotID uint, flags uint) (SessionHandle, error) {
 	return mod.OpenSession(slotID, flags)
 }
 
+// CloseSession closes session.
 func (c *Context) CloseSession(session SessionHandle) error {
 	mod, err := c.module()
 	if err != nil {
@@ -70,6 +77,7 @@ func (c *Context) CloseSession(session SessionHandle) error {
 	return mod.CloseSession(session)
 }
 
+// Login authenticates userType to session with pin.
 func (c *Context) Login(session SessionHandle, userType uint, pin string) error {
 	mod, err := c.module()
 	if err != nil {
@@ -78,6 +86,7 @@ func (c *Context) Login(session SessionHandle, userType uint, pin string) error 
 	return mod.Login(session, userType, pin)
 }
 
+// Logout ends the authenticated state of session.
 func (c *Context) Logout(session SessionHandle) error {
 	mod, err := c.module()
 	if err != nil {
@@ -86,6 +95,7 @@ func (c *Context) Logout(session SessionHandle) error {
 	return mod.Logout(session)
 }
 
+// GetSlotList returns slots, optionally limited to slots with a token present.
 func (c *Context) GetSlotList(tokenPresent bool) ([]uint, error) {
 	mod, err := c.module()
 	if err != nil {
@@ -94,6 +104,7 @@ func (c *Context) GetSlotList(tokenPresent bool) ([]uint, error) {
 	return mod.GetSlotList(tokenPresent)
 }
 
+// GetSlotInfo returns metadata for slotID.
 func (c *Context) GetSlotInfo(slotID uint) (SlotInfo, error) {
 	mod, err := c.module()
 	if err != nil {
@@ -102,6 +113,7 @@ func (c *Context) GetSlotInfo(slotID uint) (SlotInfo, error) {
 	return mod.GetSlotInfo(slotID)
 }
 
+// GetTokenInfo returns token metadata for slotID.
 func (c *Context) GetTokenInfo(slotID uint) (TokenInfo, error) {
 	mod, err := c.module()
 	if err != nil {
@@ -110,6 +122,7 @@ func (c *Context) GetTokenInfo(slotID uint) (TokenInfo, error) {
 	return mod.GetTokenInfo(slotID)
 }
 
+// GetAttributeValue returns the requested attributes for object in session.
 func (c *Context) GetAttributeValue(session SessionHandle, object ObjectHandle, attrs []*Attribute) ([]*Attribute, error) {
 	mod, err := c.module()
 	if err != nil {
@@ -121,6 +134,7 @@ func (c *Context) GetAttributeValue(session SessionHandle, object ObjectHandle, 
 	return mod.GetAttributeValue(session, object, attrs)
 }
 
+// FindObjectsInit starts an object search in session using template.
 func (c *Context) FindObjectsInit(session SessionHandle, template []*Attribute) error {
 	mod, err := c.module()
 	if err != nil {
@@ -132,6 +146,8 @@ func (c *Context) FindObjectsInit(session SessionHandle, template []*Attribute) 
 	return mod.FindObjectsInit(session, template)
 }
 
+// FindObjects returns up to max objects from the active search in session. The
+// Boolean result reports whether the module may have more objects.
 func (c *Context) FindObjects(session SessionHandle, max int) ([]ObjectHandle, bool, error) {
 	mod, err := c.module()
 	if err != nil {
@@ -140,6 +156,7 @@ func (c *Context) FindObjects(session SessionHandle, max int) ([]ObjectHandle, b
 	return mod.FindObjects(session, max)
 }
 
+// FindObjectsFinal ends the active object search in session.
 func (c *Context) FindObjectsFinal(session SessionHandle) error {
 	mod, err := c.module()
 	if err != nil {
@@ -148,6 +165,8 @@ func (c *Context) FindObjectsFinal(session SessionHandle) error {
 	return mod.FindObjectsFinal(session)
 }
 
+// SignInit starts a signing operation in session with key. Exactly one
+// mechanism is required.
 func (c *Context) SignInit(session SessionHandle, mechanisms []*Mechanism, key ObjectHandle) error {
 	mod, err := c.module()
 	if err != nil {
@@ -171,6 +190,7 @@ func validateAttributes(attrs []*Attribute) error {
 	return nil
 }
 
+// Sign signs data with the active signing operation in session.
 func (c *Context) Sign(session SessionHandle, data []byte) ([]byte, error) {
 	mod, err := c.module()
 	if err != nil {

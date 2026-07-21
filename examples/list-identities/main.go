@@ -1,3 +1,4 @@
+// list-identities prints certificate identities from a selected backend.
 package main
 
 import (

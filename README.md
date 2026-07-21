@@ -1,5 +1,7 @@
 # go-certstore
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/sukujgrg/go-certstore.svg)](https://pkg.go.dev/github.com/sukujgrg/go-certstore)
+
 `go-certstore` gives Go applications access to X.509 certificate identities.
 It supports native operating-system stores, PKCS#11 tokens, and NSS databases.
 
@@ -376,11 +378,13 @@ store, err := certstore.Open(ctx)
 
 This rule applies to all APIs that accept a context.
 
-## Read more
+## Links
 
 - [PKCS#11 usage](docs/pkcs11.md)
 - [NSS usage](docs/nss.md)
 - [Examples](docs/examples.md)
+- [Issue tracker](https://github.com/sukujgrg/go-certstore/issues)
+- [Releases](https://github.com/sukujgrg/go-certstore/releases)
 
 Runnable programs are in the [`examples`](examples/) directory. These programs
 do not start a live TLS handshake or connect to a remote server.

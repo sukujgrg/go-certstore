@@ -16,10 +16,10 @@ import (
 	certstore "github.com/sukujgrg/go-certstore"
 )
 
-// Example_openPKCS11 shows the Linux/token Open path with an explicit PKCS#11
+// ExampleOpen_pkcs11 shows the Linux/token Open path with an explicit PKCS#11
 // module. On Linux there is no native backend, so callers must pass backend
 // options like this instead of relying on Open(ctx) alone.
-func Example_openPKCS11() {
+func ExampleOpen_pkcs11() {
 	ctx := context.Background()
 	store, err := certstore.Open(ctx,
 		certstore.WithBackend(certstore.BackendPKCS11),
@@ -43,13 +43,13 @@ func Example_openPKCS11() {
 	}
 }
 
-// Example_mTLS demonstrates how to use go-certstore to find a client
+// ExampleNewClientCertificateSource_mTLS demonstrates how to use go-certstore to find a client
 // certificate by CN and issuer, then use it for mTLS. Keep the store and
 // ClientCertificateSource open for the life of the TLS client so handshakes
 // can reuse cached certificates/signers; previously returned certificates stay
 // alive until source.Close(). The source also reuses the context provided here
 // because tls.Config does not expose a per-handshake context.
-func Example_mTLS() {
+func ExampleNewClientCertificateSource_mTLS() {
 	ctx := context.Background()
 	store, err := certstore.Open(ctx)
 	if err != nil {
@@ -70,8 +70,8 @@ func Example_mTLS() {
 	_ = tlsConfig // use with http.Transport, tls.Dial, etc.
 }
 
-// Example_listCertificates shows how to enumerate all identities in the store.
-func Example_listCertificates() {
+// ExampleStore_Identities shows how to enumerate all identities in the store.
+func ExampleStore_Identities() {
 	store, err := certstore.Open(context.Background())
 	if err != nil {
 		log.Fatal(err)
@@ -98,10 +98,10 @@ func Example_listCertificates() {
 	}
 }
 
-// Example_findIdentities demonstrates structured identity selection with
+// ExampleFindIdentities demonstrates structured identity selection with
 // FindIdentities. Prefer this when SubjectCN/IssuerCN/validity filters are
 // enough; use FilterIdentities only for arbitrary certificate predicates.
-func Example_findIdentities() {
+func ExampleFindIdentities() {
 	store, err := certstore.Open(context.Background())
 	if err != nil {
 		log.Fatal(err)
@@ -124,9 +124,9 @@ func Example_findIdentities() {
 	}
 }
 
-// Example_filterIdentities demonstrates FilterIdentities for custom certificate
+// ExampleFilterIdentities demonstrates FilterIdentities for custom certificate
 // predicates that FindIdentityOptions cannot express.
-func Example_filterIdentities() {
+func ExampleFilterIdentities() {
 	store, err := certstore.Open(context.Background())
 	if err != nil {
 		log.Fatal(err)
@@ -147,9 +147,9 @@ func Example_filterIdentities() {
 	}
 }
 
-// Example_filterByCN demonstrates finding a certificate by subject CN and
+// ExampleFindIdentity_subjectCN demonstrates finding a certificate by subject CN and
 // checking that its private key signer is reachable.
-func Example_filterByCN() {
+func ExampleFindIdentity_subjectCN() {
 	store, err := certstore.Open(context.Background())
 	if err != nil {
 		log.Fatal(err)
@@ -190,9 +190,9 @@ func Example_filterByCN() {
 	fmt.Printf("Key:      OK\n")
 }
 
-// Example_signerCleanup demonstrates obtaining a signer directly and releasing
+// ExampleCloseSigner demonstrates obtaining a signer directly and releasing
 // its resources explicitly when done.
-func Example_signerCleanup() {
+func ExampleCloseSigner() {
 	store, err := certstore.Open(context.Background())
 	if err != nil {
 		log.Fatal(err)

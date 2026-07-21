@@ -1,14 +1,23 @@
-// Package certstore provides access to X.509 certificate identities from
-// native stores and token/database backends. It exposes a read-only,
-// interface-driven API for enumerating identities, retrieving certificate
-// chains, and signing with their private keys.
+// Package certstore provides read-only access to X.509 certificate and
+// private-key identities in macOS Keychain, Windows Certificate Store,
+// PKCS#11 tokens, and NSS databases.
 //
-// Scope:
+// Start with [Open] to obtain a [Store]. A store enumerates [Identity] values
+// that provide certificate chains and access to their private-key signers.
+// Use [FindIdentity] or [FindIdentities] for common selection rules. Use
+// [FilterIdentities] when selection requires a custom certificate predicate.
+//
+// For TLS client authentication, [NewClientCertificateSource] provides a
+// reusable certificate callback with deterministic signer cleanup.
+//
+// # Scope
+//
 //   - X.509 certificate identities backed by native stores or token/database backends
 //   - certificate enumeration, selection, chain retrieval, and signing
 //   - TLS client-certificate integration helpers
 //
-// Non-goals:
+// # Non-goals
+//
 //   - SSH keys or SSH certificates
 //   - generic secret storage
 //   - profile, module, or token discovery heuristics
@@ -21,7 +30,8 @@
 // One major use case is TLS client-certificate authentication (mTLS), but the
 // package is not limited to TLS-specific workflows.
 //
-// Platform support:
+// # Platform support
+//
 //   - macOS: Keychain via Security.framework (CGo required)
 //   - Windows: CertStore via CNG/CryptoAPI (CGo required; CurrentUser/LocalMachine and store name selectable)
 //   - Any platform with CGo: PKCS#11 via explicit module path
@@ -166,11 +176,21 @@ func closeOpenIdentities(idents []Identity) {
 // compatibility. Callers that need to distinguish "no" from "unknown" should
 // prefer IdentityCapabilityInfo when it is implemented.
 type IdentityInfo interface {
+	// Label returns the backend-provided identity label.
 	Label() string
+	// Backend returns the backend that owns the identity.
 	Backend() Backend
+	// KeyType returns the public-key algorithm, such as "RSA" or "ECDSA".
 	KeyType() string
+	// IsHardwareBacked reports whether the backend identifies the key as
+	// hardware-backed. Use IdentityCapabilityInfo when an unknown state must be
+	// distinguished from false.
 	IsHardwareBacked() bool
+	// RequiresLogin reports whether the backend identifies the token or store as
+	// requiring login. Use IdentityCapabilityInfo when an unknown state must be
+	// distinguished from false.
 	RequiresLogin() bool
+	// URI returns a backend-specific stable identifier for the identity.
 	URI() string
 }
 
@@ -203,7 +223,13 @@ func (s CapabilityState) String() string {
 // where a backend can distinguish "no" from "not determined". When available,
 // callers should prefer it over the boolean methods on IdentityInfo.
 type IdentityCapabilityInfo interface {
+	// HardwareBackedState returns CapabilityYes if the key is hardware-backed,
+	// CapabilityNo if it is not, or CapabilityUnknown if the backend cannot
+	// determine the state.
 	HardwareBackedState() CapabilityState
+	// LoginRequiredState returns CapabilityYes if the token or store requires
+	// login, CapabilityNo if it does not, or CapabilityUnknown if the backend
+	// cannot determine the state.
 	LoginRequiredState() CapabilityState
 }
 
@@ -212,9 +238,13 @@ type IdentityCapabilityInfo interface {
 // generic IdentityInfo surface but do not provide token-specific fields.
 type PKCS11IdentityInfo interface {
 	IdentityInfo
+	// ModulePath returns the configured PKCS#11 module path.
 	ModulePath() string
+	// SlotID returns the numeric PKCS#11 slot identifier.
 	SlotID() uint
+	// TokenLabel returns the token label without surrounding padding.
 	TokenLabel() string
+	// TokenSerial returns the token serial number without surrounding padding.
 	TokenSerial() string
 }
 
@@ -223,8 +253,12 @@ type PKCS11IdentityInfo interface {
 // profile directory; this interface surfaces those values back to the caller.
 type NSSIdentityInfo interface {
 	IdentityInfo
+	// ProfileDir returns the configured NSS profile directory.
 	ProfileDir() string
+	// ModulePath returns the configured NSS softokn3 module path.
 	ModulePath() string
+	// TokenLabel returns the NSS token label without surrounding padding.
 	TokenLabel() string
+	// TokenSerial returns the NSS token serial number without surrounding padding.
 	TokenSerial() string
 }
