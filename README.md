@@ -97,9 +97,10 @@ if err != nil {
 defer store.Close()
 ```
 
-Read-only access to a `LocalMachine` store does not always require elevation.
-The private key access control list (ACL) controls access to each private key.
-Changes to a `LocalMachine` store usually require elevation.
+Read-only access to a `LocalMachine` store does not require elevated
+permissions in all cases. The private key access control list (ACL) controls
+access to each private key. Creating or changing items in a `LocalMachine`
+store usually requires elevated permissions.
 
 ### Configure a TLS client certificate
 
@@ -126,11 +127,12 @@ tlsConfig := &tls.Config{
 ```
 
 The source caches compatible certificates and signers between TLS handshakes.
-It keeps returned signers valid during concurrent handshakes. Call `Close` to
-release token sessions.
+It keeps each returned certificate and signer alive until `Close`, so
+concurrent handshakes are safe. Call `Close` to release token sessions.
 
 Use this method for PKCS#11 and NSS. `GetClientCertificateFunc` opens the store
-for each handshake, which is usually suitable only for native stores.
+for each handshake. That cost is usually acceptable for native stores. Prefer
+`NewClientCertificateSource` or `ClientCertificateFunc` for token backends.
 
 ## Use the core API
 
@@ -154,7 +156,7 @@ The package also provides these helpers:
 
 - `FindIdentity` returns the best matching identity.
 - `FindIdentities` returns all matching identities.
-- `FilterIdentities` applies custom certificate predicates.
+- `FilterIdentities` applies custom certificate filter functions.
 - `FindTLSCertificate` returns the best matching TLS client certificate.
 - `NewClientCertificateSource` creates a closeable TLS certificate source.
 - `ClientCertificateFunc` creates a TLS callback for an open store.
@@ -171,17 +173,17 @@ if err != nil {
 defer certstore.CloseSigner(signer)
 ```
 
-This operation releases native handles and token sessions promptly. It does not
-wait for garbage collection.
+This operation releases native handles and token sessions promptly when the
+backend supports explicit cleanup. It does not wait for garbage collection.
 
 ## Close resources
 
-`Store.Close`, `Identity.Close`, and closeable signer `Close` methods are
-idempotent. You can call them while other methods run.
+`Store.Close`, `Identity.Close`, and closeable signer `Close` methods are safe
+to call more than one time. You can call them while other methods run.
 
 An operation returns `ErrClosed` if resource release completes first. Cached
-certificate data and immutable identity metadata can remain available after a
-close operation.
+certificate data and fixed identity metadata can remain available after a close
+operation.
 
 Close each client certificate source, signer, and identity that you own. Then,
 close the store.
@@ -191,39 +193,42 @@ close the store.
 All public APIs that accept `context.Context` require a non-nil context. Use
 `context.Background()` if you do not need cancellation or a deadline.
 
-TLS callbacks do not supply a context for each handshake. Therefore, these
-functions reuse the context that you supply when you create the callback:
+TLS callbacks do not supply a context for each handshake. These functions reuse
+the context that you supply when you create the callback:
 
 - `NewClientCertificateSource`
 - `ClientCertificateFunc`
 - `GetClientCertificateFunc`
 
-Token-backed signers can also retain the context from `Identity.Signer`.
-The `crypto.Signer.Sign` method does not accept a context.
+Token-backed signers can also keep the context from `Identity.Signer` for later
+re-authentication. The `crypto.Signer.Sign` method does not accept a context.
 
 Use a long-lived context in both cases. Use a short-lived context only if later
 token access must stop after cancellation.
 
 `ClientCertificateSource` does not monitor the store for replacement
 identities. Recreate the source when the application must load a new
-certificate.
+certificate. As an alternative, keep the process lifetime aligned with the
+certificate lifetime.
 
 ## Select identities
 
 Helpers that select one identity return the best match. They do not return all
 matches.
 
-The current scoring method uses these preferences:
+When more than one identity matches, the current ranking uses these scoring
+preferences:
 
-1. If requested, prefer an identity that is known to use hardware.
-2. Prefer a certificate that is currently valid.
+1. If requested, put identities that are known to use hardware above other
+   matches.
+2. Give a smaller score increase to certificates that are currently valid.
 3. Prefer a certificate with a later expiration time.
 
-The score is a heuristic. It does not give a strict sort order.
+The score is an approximate ranking. It does not give a strict sort order.
 
 Set `SelectOptions.RequireCurrentlyValid` to reject expired and not-yet-valid
-certificates. `ClientCertificateSource` always requires a currently valid
-certificate.
+certificates. Without that option, validity only changes the ranking score.
+`ClientCertificateSource` always requires a currently valid certificate.
 
 Use `FindIdentities` or `FilterIdentities` to inspect all matches.
 
@@ -253,8 +258,8 @@ Use `IdentityCapabilityInfo` if the application must distinguish `no` from
 - The library also clears the buffer if the callback returns an error.
 
 For PKCS#11 and NSS login, the package passes a temporary string view to the
-dependency. The cgo runtime or the dependency can make an internal copy.
-Therefore, this method is not a high-assurance secret-memory system.
+dependency. The cgo runtime or the dependency can make an internal copy. This
+method is not a high-assurance secret-memory system.
 
 ## Check signing support
 
@@ -272,16 +277,19 @@ RSA-PSS requires a salt length that equals the hash length.
 Use `errors.Is` to test exported errors:
 
 - `ErrIdentityNotFound` means that no identity matches the filters.
-- `ErrCredentialRequired` means that the backend requires credentials.
+- `ErrCredentialRequired` means that the backend requires credentials, or that
+  the credential state has a problem.
 - `ErrIncorrectCredential` means that the backend rejected the credentials.
-- `ErrUnsupportedBackend` means that the platform cannot use the backend.
+- `ErrUnsupportedBackend` means that the backend is not available on the
+  current platform, or that the backend is not implemented.
 - `ErrInvalidConfiguration` means that an option or context is not valid.
 - `ErrClosed` means that code used a resource after it closed.
 
 ## Understand backend selection
 
 `Open(context.Background())` uses the native backend for the current platform.
-On Linux, it returns `ErrUnsupportedBackend`.
+On Linux, it returns `ErrUnsupportedBackend`. Linux has no single standard
+system store for client certificates that this library can target.
 
 `Open(context.Background(), WithBackend(BackendAuto), ...)` uses these rules:
 
@@ -289,7 +297,7 @@ On Linux, it returns `ErrUnsupportedBackend`.
 - A PKCS#11 option selects PKCS#11 and requires a module path.
 - An NSS option selects NSS and requires a module path and profile directory.
 - A Windows store option selects the configured Windows system store.
-- Windows store options cannot occur with PKCS#11 or NSS options.
+- Do not use Windows store options with PKCS#11 or NSS options.
 
 ## Understand the project scope
 
@@ -401,3 +409,9 @@ The macOS implementation uses ideas from
 ## License
 
 MIT
+
+## Documentation style
+
+This README aims to follow ASD-STE100 Simplified Technical English. Keep future
+edits consistent with its principles: use short sentences, active voice, and
+one term for each meaning.
