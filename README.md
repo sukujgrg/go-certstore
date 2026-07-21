@@ -207,6 +207,11 @@ type Identity interface {
 }
 ```
 
+`Store.Close`, `Identity.Close`, and closeable signer `Close` methods are
+idempotent and safe to call concurrently with their other methods. Operations
+that lose a race with resource release return `ErrClosed`; cached certificate
+data and immutable identity metadata may remain available after close.
+
 Important helpers:
 
 - `FindIdentity` / `FindIdentities`

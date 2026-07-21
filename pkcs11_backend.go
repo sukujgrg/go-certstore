@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
@@ -42,6 +41,7 @@ type tokenModuleConfig struct {
 }
 
 type pkcs11Store struct {
+	mu     sync.Mutex
 	module *pkcs11Module
 	once   sync.Once
 }
@@ -51,15 +51,27 @@ func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
 		return nil, err
 	}
 
-	session, err := s.module.openSession()
-	if err != nil {
-		return nil, fmt.Errorf("open %s session: %w", s.module.backend, err)
+	s.mu.Lock()
+	if s.module == nil {
+		s.mu.Unlock()
+		return nil, ErrClosed
 	}
-	defer s.module.closeSession(session)
-
-	certObjects, err := s.loadCertificateObjects(ctx, session)
+	module, err := s.module.retain()
+	s.mu.Unlock()
 	if err != nil {
-		return nil, fmt.Errorf("load %s certificate objects: %w", s.module.backend, err)
+		return nil, fmt.Errorf("retain pkcs11 module for enumeration: %w", err)
+	}
+	defer module.release()
+
+	session, err := module.openSession()
+	if err != nil {
+		return nil, fmt.Errorf("open %s session: %w", module.backend, err)
+	}
+	defer module.closeSession(session)
+
+	certObjects, err := s.loadCertificateObjects(ctx, module, session)
+	if err != nil {
+		return nil, fmt.Errorf("load %s certificate objects: %w", module.backend, err)
 	}
 
 	chainPool := make([]*x509.Certificate, 0, len(certObjects))
@@ -80,56 +92,60 @@ func (s *pkcs11Store) Identities(ctx context.Context) ([]Identity, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		hasKey, err := s.module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
+		hasKey, err := module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
 		if err != nil && isPKCS11Error(err, pkcs11.CKR_USER_NOT_LOGGED_IN) {
 			if !loggedIn {
-				if err := s.module.login(ctx, session); err != nil {
-					return nil, fmt.Errorf("login to %s token: %w", s.module.backend, err)
+				if err := module.login(ctx, session); err != nil {
+					return nil, fmt.Errorf("login to %s token: %w", module.backend, err)
 				}
 				loggedIn = true
 			}
-			hasKey, err = s.module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
+			hasKey, err = module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("match %s private key for certificate %q: %w", s.module.backend, certObject.label, err)
+			return nil, fmt.Errorf("match %s private key for certificate %q: %w", module.backend, certObject.label, err)
 		}
-		if !hasKey && !loggedIn && s.module.tokenInfo.Flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
-			if err := s.module.login(ctx, session); err != nil {
-				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, err)
+		if !hasKey && !loggedIn && module.tokenInfo.Flags&pkcs11.CKF_LOGIN_REQUIRED != 0 {
+			if err := module.login(ctx, session); err != nil {
+				return nil, fmt.Errorf("login to %s token: %w", module.backend, err)
 			}
 			loggedIn = true
-			hasKey, err = s.module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
+			hasKey, err = module.hasPrivateKey(ctx, session, certObject.keyID, certObject.label)
 			if err != nil {
-				return nil, fmt.Errorf("match %s private key for certificate %q: %w", s.module.backend, certObject.label, err)
+				return nil, fmt.Errorf("match %s private key for certificate %q: %w", module.backend, certObject.label, err)
 			}
 		}
 		if !hasKey {
 			continue
 		}
-		moduleRef, err := s.module.retain()
+		moduleRef, err := module.retain()
 		if err != nil {
-			return nil, fmt.Errorf("retain %s module: %w", s.module.backend, err)
+			return nil, fmt.Errorf("retain %s module: %w", module.backend, err)
 		}
 		idents = append(idents, &pkcs11Identity{
-			module:    moduleRef,
-			certDER:   cloneBytes(certObject.raw),
-			keyID:     cloneBytes(certObject.keyID),
-			label:     certObject.label,
-			cert:      certObject.cert,
-			chainPool: chainPool,
+			module:     moduleRef,
+			backend:    module.backend,
+			modulePath: module.module,
+			slotID:     module.slotID,
+			slotInfo:   module.slotInfo,
+			tokenInfo:  module.tokenInfo,
+			certDER:    cloneBytes(certObject.raw),
+			keyID:      cloneBytes(certObject.keyID),
+			label:      certObject.label,
+			chainPool:  chainPool,
 		})
 	}
 	identOK = true
 	return idents, nil
 }
 
-func (s *pkcs11Store) loadCertificateObjects(ctx context.Context, session pkcs11.SessionHandle) ([]pkcs11CertificateObject, error) {
-	objects, err := findPKCS11Objects(ctx, s.module.ctx, session, []*pkcs11.Attribute{
+func (s *pkcs11Store) loadCertificateObjects(ctx context.Context, module *pkcs11Module, session pkcs11.SessionHandle) ([]pkcs11CertificateObject, error) {
+	objects, err := findPKCS11Objects(ctx, module.ctx, session, []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_CERTIFICATE),
 		pkcs11.NewAttribute(pkcs11.CKA_CERTIFICATE_TYPE, pkcs11.CKC_X_509),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("find %s certificate objects: %w", s.module.backend, err)
+		return nil, fmt.Errorf("find %s certificate objects: %w", module.backend, err)
 	}
 
 	certs := make([]pkcs11CertificateObject, 0, len(objects))
@@ -137,7 +153,7 @@ func (s *pkcs11Store) loadCertificateObjects(ctx context.Context, session pkcs11
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		attrs, err := s.module.ctx.GetAttributeValue(session, object, []*pkcs11.Attribute{
+		attrs, err := module.ctx.GetAttributeValue(session, object, []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_VALUE, nil),
 			pkcs11.NewAttribute(pkcs11.CKA_ID, nil),
 			pkcs11.NewAttribute(pkcs11.CKA_LABEL, nil),
@@ -167,6 +183,8 @@ func (s *pkcs11Store) loadCertificateObjects(ctx context.Context, session pkcs11
 
 func (s *pkcs11Store) Close() {
 	s.once.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		if s.module != nil {
 			s.module.release()
 			s.module = nil
@@ -382,15 +400,21 @@ type pkcs11CertificateObject struct {
 }
 
 type pkcs11Identity struct {
-	module    *pkcs11Module
-	certDER   []byte
-	keyID     []byte
-	label     string
-	chainPool []*x509.Certificate
-	once      sync.Once
-	cert      *x509.Certificate
-	certErr   error
-	closeOnce sync.Once
+	mu         sync.Mutex
+	module     *pkcs11Module
+	backend    Backend
+	modulePath string
+	slotID     uint
+	slotInfo   pkcs11.SlotInfo
+	tokenInfo  pkcs11.TokenInfo
+	certDER    []byte
+	keyID      []byte
+	label      string
+	chainPool  []*x509.Certificate
+	once       sync.Once
+	cert       *x509.Certificate
+	certErr    error
+	closeOnce  sync.Once
 }
 
 func (id *pkcs11Identity) Certificate(ctx context.Context) (*x509.Certificate, error) {
@@ -400,7 +424,7 @@ func (id *pkcs11Identity) Certificate(ctx context.Context) (*x509.Certificate, e
 	id.once.Do(func() {
 		id.cert, id.certErr = x509.ParseCertificate(id.certDER)
 		if id.certErr != nil {
-			id.certErr = fmt.Errorf("parse %s certificate: %w", id.module.backend, id.certErr)
+			id.certErr = fmt.Errorf("parse %s certificate: %w", id.backend, id.certErr)
 		}
 	})
 	return id.cert, id.certErr
@@ -419,15 +443,21 @@ func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
 		return nil, err
 	}
 
+	id.mu.Lock()
+	if id.module == nil {
+		id.mu.Unlock()
+		return nil, ErrClosed
+	}
 	moduleRef, err := id.module.retain()
+	id.mu.Unlock()
 	if err != nil {
-		return nil, fmt.Errorf("retain %s module: %w", id.module.backend, err)
+		return nil, fmt.Errorf("retain %s module: %w", id.backend, err)
 	}
 
 	session, err := moduleRef.openSession()
 	if err != nil {
 		moduleRef.release()
-		return nil, fmt.Errorf("open %s session: %w", id.module.backend, err)
+		return nil, fmt.Errorf("open %s session: %w", id.backend, err)
 	}
 
 	key, err := id.findPrivateKey(ctx, moduleRef, session, false)
@@ -437,19 +467,19 @@ func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
 	if err != nil && !errors.Is(err, ErrIdentityNotFound) {
 		moduleRef.closeSession(session)
 		moduleRef.release()
-		return nil, fmt.Errorf("find %s private key: %w", id.module.backend, err)
+		return nil, fmt.Errorf("find %s private key: %w", id.backend, err)
 	}
 	if key == 0 {
 		if err := moduleRef.login(ctx, session); err != nil {
 			moduleRef.closeSession(session)
 			moduleRef.release()
-			return nil, fmt.Errorf("login to %s token: %w", id.module.backend, err)
+			return nil, fmt.Errorf("login to %s token: %w", id.backend, err)
 		}
 		key, err = id.findPrivateKey(ctx, moduleRef, session, true)
 		if err != nil {
 			moduleRef.closeSession(session)
 			moduleRef.release()
-			return nil, fmt.Errorf("find %s private key: %w", id.module.backend, err)
+			return nil, fmt.Errorf("find %s private key: %w", id.backend, err)
 		}
 	}
 
@@ -457,7 +487,7 @@ func (id *pkcs11Identity) Signer(ctx context.Context) (crypto.Signer, error) {
 	if err != nil {
 		moduleRef.closeSession(session)
 		moduleRef.release()
-		return nil, fmt.Errorf("load %s certificate for signer: %w", id.module.backend, err)
+		return nil, fmt.Errorf("load %s certificate for signer: %w", id.backend, err)
 	}
 
 	signer := &pkcs11Signer{
@@ -501,6 +531,8 @@ func (id *pkcs11Identity) findPrivateKey(ctx context.Context, module *pkcs11Modu
 
 func (id *pkcs11Identity) Close() {
 	id.closeOnce.Do(func() {
+		id.mu.Lock()
+		defer id.mu.Unlock()
 		if id.module != nil {
 			id.module.release()
 			id.module = nil
@@ -532,11 +564,11 @@ func (id *pkcs11Identity) KeyType() string {
 }
 
 func (id *pkcs11Identity) IsHardwareBacked() bool {
-	return id.module.slotInfo.Flags&pkcs11.CKF_HW_SLOT != 0
+	return id.slotInfo.Flags&pkcs11.CKF_HW_SLOT != 0
 }
 
 func (id *pkcs11Identity) RequiresLogin() bool {
-	return id.module.tokenInfo.Flags&pkcs11.CKF_LOGIN_REQUIRED != 0
+	return id.tokenInfo.Flags&pkcs11.CKF_LOGIN_REQUIRED != 0
 }
 
 func (id *pkcs11Identity) HardwareBackedState() CapabilityState {
@@ -555,10 +587,10 @@ func (id *pkcs11Identity) LoginRequiredState() CapabilityState {
 
 func (id *pkcs11Identity) URI() string {
 	parts := []string{
-		"module=" + id.module.module,
-		fmt.Sprintf("slot=%d", id.module.slotID),
+		"module=" + id.modulePath,
+		fmt.Sprintf("slot=%d", id.slotID),
 	}
-	if label := strings.TrimSpace(id.module.tokenInfo.Label); label != "" {
+	if label := strings.TrimSpace(id.tokenInfo.Label); label != "" {
 		parts = append(parts, "token="+label)
 	}
 	if len(id.keyID) > 0 {
@@ -570,19 +602,19 @@ func (id *pkcs11Identity) URI() string {
 }
 
 func (id *pkcs11Identity) ModulePath() string {
-	return id.module.module
+	return id.modulePath
 }
 
 func (id *pkcs11Identity) SlotID() uint {
-	return id.module.slotID
+	return id.slotID
 }
 
 func (id *pkcs11Identity) TokenLabel() string {
-	return strings.TrimSpace(id.module.tokenInfo.Label)
+	return strings.TrimSpace(id.tokenInfo.Label)
 }
 
 func (id *pkcs11Identity) TokenSerial() string {
-	return strings.TrimSpace(id.module.tokenInfo.SerialNumber)
+	return strings.TrimSpace(id.tokenInfo.SerialNumber)
 }
 
 type pkcs11Signer struct {
@@ -631,10 +663,10 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, loginErr)
 			}
 			if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
-				return nil, fmt.Errorf("%w: %v", ErrMechanismUnsupported, err)
+				return nil, classifyPKCS11SignError("initialize signature after login", err)
 			}
 		} else {
-			return nil, fmt.Errorf("%w: %v", ErrMechanismUnsupported, err)
+			return nil, classifyPKCS11SignError("initialize signature", err)
 		}
 	}
 
@@ -645,12 +677,12 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 				return nil, fmt.Errorf("login to %s token: %w", s.module.backend, loginErr)
 			}
 			if err := s.module.ctx.SignInit(s.session, []*pkcs11.Mechanism{mech}, s.key); err != nil {
-				return nil, fmt.Errorf("%w: %v", ErrMechanismUnsupported, err)
+				return nil, classifyPKCS11SignError("reinitialize signature after login", err)
 			}
 			sig, err = s.module.ctx.Sign(s.session, input)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrMechanismUnsupported, err)
+			return nil, classifyPKCS11SignError("sign", err)
 		}
 	}
 
@@ -662,6 +694,21 @@ func (s *pkcs11Signer) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) 
 		return sig, nil
 	}
 	return sig, nil
+}
+
+func classifyPKCS11SignError(operation string, err error) error {
+	for _, code := range []pkcs11.Error{
+		pkcs11.CKR_MECHANISM_INVALID,
+		pkcs11.CKR_MECHANISM_PARAM_INVALID,
+		pkcs11.CKR_KEY_TYPE_INCONSISTENT,
+		pkcs11.CKR_KEY_FUNCTION_NOT_PERMITTED,
+		pkcs11.CKR_FUNCTION_NOT_SUPPORTED,
+	} {
+		if isPKCS11Error(err, code) {
+			return fmt.Errorf("%s: %w: %w", operation, ErrMechanismUnsupported, err)
+		}
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 func (s *pkcs11Signer) release() {
@@ -949,5 +996,4 @@ var (
 	_ IdentityInfo       = (*pkcs11Identity)(nil)
 	_ PKCS11IdentityInfo = (*pkcs11Identity)(nil)
 	_ CloseableSigner    = (*pkcs11Signer)(nil)
-	_                    = elliptic.P256
 )

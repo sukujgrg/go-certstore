@@ -71,28 +71,61 @@ Remove-Item -Path 'Cert:\CurrentUser\My\%s' -ErrorAction SilentlyContinue`, thum
 	if cert.Subject.CommonName != testCN {
 		t.Fatalf("unexpected certificate CN %q", cert.Subject.CommonName)
 	}
+	winIdent, ok := ident.(*winIdentity)
+	if !ok {
+		t.Fatalf("unexpected identity type %T", ident)
+	}
 
-	signer, err := ident.Signer(context.Background())
+	ownedSigner, err := ident.Signer(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = CloseSigner(ownedSigner) })
+
+	cachedSigner, err := winIdent.signer(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = CloseSigner(cachedSigner) })
+	winSigner, ok := cachedSigner.(*winSigner)
+	if !ok {
+		t.Fatalf("unexpected signer type %T", cachedSigner)
+	}
+	if winSigner.callerFree {
+		t.Fatal("cached private-key acquisition returned a caller-owned handle")
+	}
+	if winSigner.certCtx == nil {
+		t.Fatal("cached private-key signer did not retain its certificate context")
+	}
+
+	// CRYPT_ACQUIRE_CACHE_FLAG makes the key handle certificate-context-owned.
+	// The signer's duplicate context must keep that borrowed handle alive.
+	ident.Close()
 	digest := sha256.Sum256([]byte("go-certstore windows integration"))
-	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
-	if err != nil {
-		t.Fatal(err)
-	}
 	pub, ok := cert.PublicKey.(*rsa.PublicKey)
 	if !ok {
 		t.Fatalf("unexpected public key type %T", cert.PublicKey)
 	}
-	if err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, digest[:], sig); err != nil {
-		t.Fatalf("signature verification failed: %v", err)
-	}
-	if err := CloseSigner(signer); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256); !errors.Is(err, ErrClosed) {
-		t.Fatalf("expected ErrClosed after signer close, got %v", err)
+	for _, test := range []struct {
+		name   string
+		signer crypto.Signer
+	}{
+		{name: "normal", signer: ownedSigner},
+		{name: "certificate-owned", signer: cachedSigner},
+	} {
+		sig, err := test.signer.Sign(rand.Reader, digest[:], crypto.SHA256)
+		if err != nil {
+			t.Fatalf("%s signer after identity close: %v", test.name, err)
+		}
+		if err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, digest[:], sig); err != nil {
+			t.Fatalf("%s signature verification failed: %v", test.name, err)
+		}
+		if err := CloseSigner(test.signer); err != nil {
+			t.Fatalf("close %s signer: %v", test.name, err)
+		}
+		if _, err := test.signer.Sign(rand.Reader, digest[:], crypto.SHA256); !errors.Is(err, ErrClosed) {
+			t.Fatalf("%s signer after close: got %v, want ErrClosed", test.name, err)
+		}
 	}
 }
 

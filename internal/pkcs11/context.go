@@ -2,6 +2,7 @@ package pkcs11
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 )
 
@@ -114,12 +115,18 @@ func (c *Context) GetAttributeValue(session SessionHandle, object ObjectHandle, 
 	if err != nil {
 		return nil, err
 	}
+	if err := validateAttributes(attrs); err != nil {
+		return nil, err
+	}
 	return mod.GetAttributeValue(session, object, attrs)
 }
 
 func (c *Context) FindObjectsInit(session SessionHandle, template []*Attribute) error {
 	mod, err := c.module()
 	if err != nil {
+		return err
+	}
+	if err := validateAttributes(template); err != nil {
 		return err
 	}
 	return mod.FindObjectsInit(session, template)
@@ -146,7 +153,22 @@ func (c *Context) SignInit(session SessionHandle, mechanisms []*Mechanism, key O
 	if err != nil {
 		return err
 	}
+	if len(mechanisms) != 1 {
+		return fmt.Errorf("pkcs11: SignInit requires exactly one mechanism, got %d", len(mechanisms))
+	}
+	if mechanisms[0] == nil {
+		return errors.New("pkcs11: SignInit mechanism must not be nil")
+	}
 	return mod.SignInit(session, mechanisms, key)
+}
+
+func validateAttributes(attrs []*Attribute) error {
+	for i, attr := range attrs {
+		if attr == nil {
+			return fmt.Errorf("pkcs11: attribute %d must not be nil", i)
+		}
+	}
+	return nil
 }
 
 func (c *Context) Sign(session SessionHandle, data []byte) ([]byte, error) {

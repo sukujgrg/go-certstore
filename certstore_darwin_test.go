@@ -3,19 +3,21 @@
 package certstore
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 )
 
 func TestMacIdentityImplementsIdentityInfo(t *testing.T) {
 	_, _, cert, _ := newTestChain(t, "Darwin Info CA", true)
 
-	id := &macIdentity{cert: cert, certRaw: cert.Raw}
+	id := &macIdentity{cert: cert}
 
 	if got := id.Label(); got != cert.Subject.CommonName {
 		t.Fatalf("Label() = %q, want %q", got, cert.Subject.CommonName)
@@ -100,4 +102,34 @@ func TestMacSignerAlgorithmRejectsPSSSaltLengthAutoDowngrade(t *testing.T) {
 	if !errors.Is(err, ErrMechanismUnsupported) {
 		t.Fatalf("expected ErrMechanismUnsupported, got %v", err)
 	}
+}
+
+func TestMacSignerAlgorithmRejectsUnknownKeyType(t *testing.T) {
+	signer := &macSigner{pub: struct{}{}}
+	_, err := signer.algorithm(crypto.SHA256)
+	if !errors.Is(err, ErrMechanismUnsupported) {
+		t.Fatalf("expected ErrMechanismUnsupported, got %v", err)
+	}
+}
+
+func TestMacIdentityConcurrentCloseWithCachedCertificate(t *testing.T) {
+	_, _, cert, _ := newTestChain(t, "Darwin Concurrent Close CA", true)
+	id := &macIdentity{cert: cert}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for range 100 {
+				_, _ = id.Certificate(context.Background())
+				_ = id.Label()
+			}
+		}()
+	}
+	close(start)
+	id.Close()
+	wg.Wait()
 }

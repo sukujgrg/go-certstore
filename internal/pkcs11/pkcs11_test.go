@@ -173,6 +173,30 @@ func TestNilContextReturnsError(t *testing.T) {
 	ctx.Destroy()
 }
 
+func TestContextRejectsNilAttributeEntries(t *testing.T) {
+	ctx := &Context{mod: &fakeModule{}}
+
+	if _, err := ctx.GetAttributeValue(1, 2, []*Attribute{nil}); err == nil {
+		t.Fatal("GetAttributeValue() accepted a nil attribute")
+	}
+	if err := ctx.FindObjectsInit(1, []*Attribute{nil}); err == nil {
+		t.Fatal("FindObjectsInit() accepted a nil attribute")
+	}
+}
+
+func TestContextValidatesSignInitMechanism(t *testing.T) {
+	ctx := &Context{mod: &fakeModule{}}
+
+	for _, mechanisms := range [][]*Mechanism{nil, {}, {nil}, {
+		NewMechanism(CKM_RSA_PKCS, nil),
+		NewMechanism(CKM_RSA_PKCS, nil),
+	}} {
+		if err := ctx.SignInit(1, mechanisms, 2); err == nil {
+			t.Fatalf("SignInit(%v) succeeded", mechanisms)
+		}
+	}
+}
+
 func TestWrapErrorConvertsUpstreamPKCS11Errors(t *testing.T) {
 	err := wrapError(upstream.Error(upstream.CKR_PIN_LOCKED))
 	var pkErr Error

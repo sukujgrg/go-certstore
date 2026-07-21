@@ -111,6 +111,8 @@ func TestMacKeychainIntegration(t *testing.T) {
 	if err != nil {
 		t.Skipf("temporary keychain identity not usable for signing in this environment: %v", err)
 	}
+	// The signer owns its native key reference and must survive identity close.
+	ident.Close()
 	digest := sha256.Sum256([]byte("go-certstore darwin integration"))
 	sig, err := signer.Sign(rand.Reader, digest[:], crypto.SHA256)
 	if err != nil {

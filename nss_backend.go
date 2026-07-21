@@ -130,9 +130,9 @@ func (id *nssIdentity) LoginRequiredState() CapabilityState {
 func (id *nssIdentity) URI() string {
 	parts := []string{
 		"profile=" + id.profileSpec,
-		"module=" + id.pkcs11Identity.module.module,
+		"module=" + id.pkcs11Identity.ModulePath(),
 	}
-	if label := strings.TrimSpace(id.pkcs11Identity.module.tokenInfo.Label); label != "" {
+	if label := id.pkcs11Identity.TokenLabel(); label != "" {
 		parts = append(parts, "token="+label)
 	}
 	if len(id.pkcs11Identity.keyID) > 0 {
@@ -145,18 +145,6 @@ func (id *nssIdentity) URI() string {
 
 func (id *nssIdentity) ProfileDir() string {
 	return id.profileDir
-}
-
-func (id *nssIdentity) ModulePath() string {
-	return id.pkcs11Identity.module.module
-}
-
-func (id *nssIdentity) TokenLabel() string {
-	return strings.TrimSpace(id.pkcs11Identity.module.tokenInfo.Label)
-}
-
-func (id *nssIdentity) TokenSerial() string {
-	return strings.TrimSpace(id.pkcs11Identity.module.tokenInfo.SerialNumber)
 }
 
 func newNSSModule(ctx context.Context, cfg Options) (*pkcs11Module, error) {

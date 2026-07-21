@@ -20,13 +20,18 @@ const (
 
 	CKU_USER = upstream.CKU_USER
 
-	CKR_USER_NOT_LOGGED_IN     = Error(upstream.CKR_USER_NOT_LOGGED_IN)
-	CKR_USER_ALREADY_LOGGED_IN = Error(upstream.CKR_USER_ALREADY_LOGGED_IN)
-	CKR_PIN_INCORRECT          = Error(upstream.CKR_PIN_INCORRECT)
-	CKR_PIN_INVALID            = Error(upstream.CKR_PIN_INVALID)
-	CKR_PIN_LEN_RANGE          = Error(upstream.CKR_PIN_LEN_RANGE)
-	CKR_PIN_EXPIRED            = Error(upstream.CKR_PIN_EXPIRED)
-	CKR_PIN_LOCKED             = Error(upstream.CKR_PIN_LOCKED)
+	CKR_USER_NOT_LOGGED_IN         = Error(upstream.CKR_USER_NOT_LOGGED_IN)
+	CKR_USER_ALREADY_LOGGED_IN     = Error(upstream.CKR_USER_ALREADY_LOGGED_IN)
+	CKR_PIN_INCORRECT              = Error(upstream.CKR_PIN_INCORRECT)
+	CKR_PIN_INVALID                = Error(upstream.CKR_PIN_INVALID)
+	CKR_PIN_LEN_RANGE              = Error(upstream.CKR_PIN_LEN_RANGE)
+	CKR_PIN_EXPIRED                = Error(upstream.CKR_PIN_EXPIRED)
+	CKR_PIN_LOCKED                 = Error(upstream.CKR_PIN_LOCKED)
+	CKR_MECHANISM_INVALID          = Error(upstream.CKR_MECHANISM_INVALID)
+	CKR_MECHANISM_PARAM_INVALID    = Error(upstream.CKR_MECHANISM_PARAM_INVALID)
+	CKR_KEY_TYPE_INCONSISTENT      = Error(upstream.CKR_KEY_TYPE_INCONSISTENT)
+	CKR_KEY_FUNCTION_NOT_PERMITTED = Error(upstream.CKR_KEY_FUNCTION_NOT_PERMITTED)
+	CKR_FUNCTION_NOT_SUPPORTED     = Error(upstream.CKR_FUNCTION_NOT_SUPPORTED)
 
 	CKM_RSA_PKCS_PSS = upstream.CKM_RSA_PKCS_PSS
 	CKM_RSA_PKCS     = upstream.CKM_RSA_PKCS
