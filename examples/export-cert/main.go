@@ -1,3 +1,4 @@
+// export-cert writes a selected certificate or certificate chain in PEM form.
 package main
 
 import (

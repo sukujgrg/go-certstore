@@ -2,6 +2,8 @@ package pkcs11
 
 import upstream "github.com/miekg/pkcs11"
 
+// PKCS#11 constants used by the certstore backends. The names match the
+// identifiers in the PKCS#11 specification and the upstream binding.
 const (
 	CKA_CLASS            = upstream.CKA_CLASS
 	CKA_CERTIFICATE_TYPE = upstream.CKA_CERTIFICATE_TYPE

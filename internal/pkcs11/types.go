@@ -15,43 +15,61 @@ type Context struct {
 	mod module
 }
 
+// InitializeOption configures PKCS#11 module initialization.
 type InitializeOption struct {
 	reserved unsafe.Pointer
 }
 
 // Attribute stores the encoded PKCS#11 value bytes for a single attribute.
 type Attribute struct {
-	Type  uint
+	// Type identifies the PKCS#11 attribute.
+	Type uint
+	// Value contains the encoded PKCS#11 attribute value.
 	Value []byte
 }
 
+// Mechanism describes a PKCS#11 mechanism and its encoded parameter.
 type Mechanism struct {
+	// Mechanism identifies the PKCS#11 mechanism.
 	Mechanism uint
+	// Parameter contains the encoded mechanism parameter, or nil when the
+	// mechanism has no parameter.
 	Parameter interface{}
 }
 
+// ObjectHandle identifies an object within a PKCS#11 session.
 type ObjectHandle uint
 
+// SessionHandle identifies an open PKCS#11 session.
 type SessionHandle uint
 
+// SlotInfo contains the slot metadata used by the parent certstore package.
 type SlotInfo struct {
+	// Flags contains the PKCS#11 slot flags.
 	Flags uint
 }
 
+// TokenInfo contains the token metadata used by the parent certstore package.
 type TokenInfo struct {
-	Label        string
+	// Label is the token label as returned by the PKCS#11 module.
+	Label string
+	// SerialNumber is the token serial number as returned by the PKCS#11 module.
 	SerialNumber string
-	Flags        uint
+	// Flags contains the PKCS#11 token flags.
+	Flags uint
 }
 
 // Error preserves the upstream PKCS#11 error code while exposing it as a
 // package-owned type.
 type Error uint
 
+// Error returns the message for the underlying PKCS#11 error code.
 func (e Error) Error() string {
 	return upstream.Error(e).Error()
 }
 
+// InitializeWithReserved returns an initialization option containing the
+// PKCS#11 pReserved value.
 func InitializeWithReserved(reserved unsafe.Pointer) InitializeOption {
 	return InitializeOption{reserved: reserved}
 }

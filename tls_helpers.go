@@ -24,8 +24,10 @@ import (
 // certificates, and also favors later expiry. This is a scoring heuristic, not
 // a strict lexicographic ordering.
 type SelectOptions struct {
+	// SubjectCN matches the certificate subject common name exactly.
 	SubjectCN string
-	IssuerCN  string
+	// IssuerCN matches the certificate issuer common name exactly.
+	IssuerCN string
 	// RequireClientAuthEKU rejects certificates whose ExtKeyUsage list is
 	// present and does not include ClientAuth or Any. Certificates with no
 	// ExtKeyUsage extensions are treated as unrestricted per X.509 semantics
@@ -35,6 +37,8 @@ type SelectOptions struct {
 	// ClientCertificateSource always enables this so expired identities are not
 	// re-selected and cached after an expired cache entry is skipped.
 	RequireCurrentlyValid bool
+	// PreferHardwareBacked ranks known hardware-backed identities above other
+	// matches without excluding those other matches.
 	PreferHardwareBacked bool
 }
 

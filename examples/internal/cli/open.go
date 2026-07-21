@@ -10,11 +10,16 @@ import (
 
 // OpenConfig is the common backend configuration accepted by the examples.
 type OpenConfig struct {
+	// Backend selects auto, pkcs11, or nss.
 	Backend string
-	Module  string
+	// Module is the PKCS#11 module or NSS softokn3 path.
+	Module string
+	// Profile is the NSS profile directory.
 	Profile string
-	Token   string
-	PIN     string
+	// Token is the PKCS#11 token label.
+	Token string
+	// PIN is the token or database credential.
+	PIN string
 }
 
 // OpenOptions builds certstore.Open options from common example flags/env.

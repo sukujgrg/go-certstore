@@ -20,19 +20,33 @@ const (
 // FindIdentities returns all matches without ranking them down to a single
 // winner.
 type FindIdentityOptions struct {
+	// Backend matches identities from this backend. An empty value and
+	// BackendAuto match every backend.
 	Backend Backend
 
+	// SubjectCN matches the certificate subject common name exactly.
 	SubjectCN string
-	IssuerCN  string
-	Label     string
-	KeyType   string
-	URI       string
+	// IssuerCN matches the certificate issuer common name exactly.
+	IssuerCN string
+	// Label matches IdentityInfo.Label exactly.
+	Label string
+	// KeyType matches IdentityInfo.KeyType exactly.
+	KeyType string
+	// URI matches IdentityInfo.URI exactly.
+	URI string
 
-	ValidOnly             bool
+	// ValidOnly requires the certificate to be valid at Now.
+	ValidOnly bool
+	// RequireHardwareBacked requires a known hardware-backed identity.
 	RequireHardwareBacked bool
-	RequireLogin          bool
-	PreferHardwareBacked  bool
+	// RequireLogin requires an identity known to require login.
+	RequireLogin bool
+	// PreferHardwareBacked ranks known hardware-backed identities above other
+	// matches without excluding those other matches.
+	PreferHardwareBacked bool
 
+	// Now sets the time used for validity checks and ranking. The zero value
+	// uses the current time.
 	Now time.Time
 }
 
