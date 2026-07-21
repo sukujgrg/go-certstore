@@ -1,86 +1,35 @@
 # go-certstore
 
-A Go library for accessing X.509 certificate identities across native OS stores and token/database-backed backends.
+`go-certstore` gives Go applications access to X.509 certificate identities.
+It supports native operating-system stores, PKCS#11 tokens, and NSS databases.
+
+An identity contains a certificate and its private-key signer. The private key
+stays in its native store, token, or database.
 
 ## Platform support
 
-| Backend | Host OS | Status | CGo required |
-|---------|---------|--------|:------------:|
-| Keychain (Security.framework) | macOS | Implemented | Yes |
-| CertStore (CNG / CryptoAPI) | Windows | Implemented | Yes |
+| Backend | Host operating system | Status | Requires cgo |
+|---|---|---|:---:|
+| Keychain (`Security.framework`) | macOS | Supported | Yes |
+| Certificate Store (CNG or CryptoAPI) | Windows | Supported | Yes |
 | Native system store | Linux | Not supported | No |
-| PKCS#11 (explicit module path) | Cross-platform | Implemented | Yes |
-| NSS (explicit softokn3 module path + profile dir) | Cross-platform | Implemented | Yes |
+| PKCS#11 with an explicit module path | All supported platforms | Supported | Yes |
+| NSS with an explicit `softokn3` module path and profile directory | All supported platforms | Supported | Yes |
 
-PKCS#11 support includes hardware and software tokens such as YubiKey PIV via
-OpenSC, smart cards, HSMs, and SoftHSM, as long as the application provides an
-explicit module path and any required credentials.
+PKCS#11 supports hardware and software tokens. Examples include YubiKey PIV,
+OpenSC smart cards, hardware security modules (HSMs), and SoftHSM.
 
-## Install
+The application must supply the module path and all required credentials.
+
+## Install the library
 
 ```sh
 go get github.com/sukujgrg/go-certstore@latest
 ```
 
-## Migrating from ≤ v0.1.4
+## Start quickly
 
-Two breaking changes affect callers upgrading from v0.1.4 or earlier.
-
-### FilterIdentities requires an open store
-
-`FilterIdentities` no longer opens the platform-default store internally. The
-application must open the desired backend, pass that `Store` to
-`FilterIdentities`, and close the store when finished.
-
-Before (≤ v0.1.4):
-
-```go
-idents, err := certstore.FilterIdentities(ctx, filter)
-```
-
-Current API:
-
-```go
-store, err := certstore.Open(ctx, openOpts...)
-if err != nil {
-    return err
-}
-defer store.Close()
-
-idents, err := certstore.FilterIdentities(ctx, store, filter)
-```
-
-Returned identities remain caller-owned and must also be closed. Making the
-store explicit allows callers to select PKCS#11, NSS, or a specific Windows
-store instead of being limited to the platform default.
-
-### Nil contexts are rejected
-
-In ≤ v0.1.4, public APIs that accept `context.Context` treated `nil` as
-`context.Background()`. They now return `ErrInvalidConfiguration` when `ctx`
-is nil.
-
-Before (≤ v0.1.4):
-
-```go
-store, err := certstore.Open(nil)
-```
-
-Current API:
-
-```go
-ctx := context.Background()
-store, err := certstore.Open(ctx)
-```
-
-Pass `context.Background()` when you do not need cancellation or deadlines.
-This applies to all context-taking entry points, including `Open`,
-`FilterIdentities`, `FindIdentity`, `FindIdentities`, `FindTLSCertificate`,
-and TLS client-certificate helpers.
-
-## Quick start
-
-Default backend for the current platform:
+Open the default backend for the current platform:
 
 ```go
 ctx := context.Background()
@@ -91,11 +40,10 @@ if err != nil {
 defer store.Close()
 ```
 
-On Linux, the native backend is intentionally unsupported, so callers should
-choose `BackendPKCS11` or `BackendNSS` explicitly instead of relying on the
-platform default.
+Linux does not have a native backend. On Linux, select `BackendPKCS11` or
+`BackendNSS` explicitly.
 
-Explicit PKCS#11 backend:
+### Open a PKCS#11 backend
 
 ```go
 ctx := context.Background()
@@ -113,7 +61,7 @@ if err != nil {
 defer store.Close()
 ```
 
-Explicit NSS backend:
+### Open an NSS backend
 
 ```go
 ctx := context.Background()
@@ -131,7 +79,10 @@ if err != nil {
 defer store.Close()
 ```
 
-Windows store selection (defaults to CurrentUser\\MY):
+### Select a Windows store
+
+The Windows backend uses `CurrentUser\\MY` by default. Use options to select a
+different store:
 
 ```go
 ctx := context.Background()
@@ -146,7 +97,13 @@ if err != nil {
 defer store.Close()
 ```
 
-TLS client certificate helper:
+Read-only access to a `LocalMachine` store does not always require elevation.
+The private key access control list (ACL) controls access to each private key.
+Changes to a `LocalMachine` store usually require elevation.
+
+### Configure a TLS client certificate
+
+Use a long-lived store with `NewClientCertificateSource`:
 
 ```go
 ctx := context.Background()
@@ -168,28 +125,14 @@ tlsConfig := &tls.Config{
 }
 ```
 
-Prefer `NewClientCertificateSource` (or `ClientCertificateFunc`) with a
-long-lived store for PKCS#11 and NSS. The source caches returned
-certificates/signers across handshakes (keeping previously returned ones alive
-until `Close`, so concurrent handshakes are safe) and `Close` releases those
-token sessions deterministically. `GetClientCertificateFunc` is still available
-when reopening the store on each handshake is acceptable (typically native
-macOS/Windows stores).
+The source caches compatible certificates and signers between TLS handshakes.
+It keeps returned signers valid during concurrent handshakes. Call `Close` to
+release token sessions.
 
-## Signing support
+Use this method for PKCS#11 and NSS. `GetClientCertificateFunc` opens the store
+for each handshake, which is usually suitable only for native stores.
 
-| Algorithm | macOS | Windows (CNG) | Windows (CryptoAPI) | PKCS#11 | NSS |
-|-----------|:-----:|:--------------:|:-------------------:|:-------:|:---:|
-| RSA PKCS#1 v1.5 (SHA1/256/384/512) | Yes | Yes | Yes | Yes | Yes |
-| RSA-PSS (SHA256/384/512) | Yes | Yes | — | Yes | Yes |
-| ECDSA (SHA1/256/384/512) | Yes | Yes | — | Yes | Yes |
-
-Direct `crypto.Signer` use can still have backend-specific limits. In
-particular, the macOS backend supports RSA-PSS only when the requested salt
-length equals the hash length, matching the Security.framework algorithms used
-here.
-
-## Core API
+## Use the core API
 
 ```go
 func Open(ctx context.Context, opts ...Option) (Store, error)
@@ -207,21 +150,18 @@ type Identity interface {
 }
 ```
 
-`Store.Close`, `Identity.Close`, and closeable signer `Close` methods are
-idempotent and safe to call concurrently with their other methods. Operations
-that lose a race with resource release return `ErrClosed`; cached certificate
-data and immutable identity metadata may remain available after close.
+The package also provides these helpers:
 
-Important helpers:
+- `FindIdentity` returns the best matching identity.
+- `FindIdentities` returns all matching identities.
+- `FilterIdentities` applies custom certificate predicates.
+- `FindTLSCertificate` returns the best matching TLS client certificate.
+- `NewClientCertificateSource` creates a closeable TLS certificate source.
+- `ClientCertificateFunc` creates a TLS callback for an open store.
+- `GetClientCertificateFunc` creates a TLS callback that opens the store for each handshake.
+- `CloseSigner` releases resources held by a signer.
 
-- `FindIdentity` / `FindIdentities`
-- `FilterIdentities` for arbitrary certificate predicates
-- `FindTLSCertificate`
-- `NewClientCertificateSource` / `ClientCertificateFunc`
-- `GetClientCertificateFunc`
-- `CloseSigner`
-
-Use `CloseSigner` when you obtain a signer directly from `Identity.Signer(ctx)`:
+Close a signer that you get directly from `Identity.Signer`:
 
 ```go
 signer, err := ident.Signer(ctx)
@@ -231,190 +171,232 @@ if err != nil {
 defer certstore.CloseSigner(signer)
 ```
 
-That lets backends release native handles or token sessions promptly instead of
-waiting for garbage collection.
+This operation releases native handles and token sessions promptly. It does not
+wait for garbage collection.
 
-## Context Semantics
+## Close resources
+
+`Store.Close`, `Identity.Close`, and closeable signer `Close` methods are
+idempotent. You can call them while other methods run.
+
+An operation returns `ErrClosed` if resource release completes first. Cached
+certificate data and immutable identity metadata can remain available after a
+close operation.
+
+Close each client certificate source, signer, and identity that you own. Then,
+close the store.
+
+## Use contexts
 
 All public APIs that accept `context.Context` require a non-nil context. Use
-`context.Background()` when cancellation is not needed.
+`context.Background()` if you do not need cancellation or a deadline.
 
-Two lifecycle details matter in practice:
+TLS callbacks do not supply a context for each handshake. Therefore, these
+functions reuse the context that you supply when you create the callback:
 
-- `NewClientCertificateSource`, `ClientCertificateFunc`, and
-  `GetClientCertificateFunc` reuse the context you pass when the callback is
-  created, because Go's TLS callback does not provide a per-handshake context
-- token-backed signers may retain the context passed to `Identity.Signer(ctx)`
-  for later re-authentication, because `crypto.Signer.Sign` does not accept a
-  context
+- `NewClientCertificateSource`
+- `ClientCertificateFunc`
+- `GetClientCertificateFunc`
 
-For both cases, prefer a long-lived context unless you explicitly want
-cancellation to stop later token access.
+Token-backed signers can also retain the context from `Identity.Signer`.
+The `crypto.Signer.Sign` method does not accept a context.
 
-For PKCS#11 and NSS, prefer `NewClientCertificateSource` with a store you keep
-open for the life of the TLS client or server. The source reuses compatible,
-currently valid cached certificates/signers across handshakes and keeps
-previously returned ones alive until `Close` so concurrent handshakes stay safe;
-call `Close` to release those token sessions when finished. It does not watch
-the store for replaced identities—recreate the source, or keep process lifetime
-aligned with certificate lifetime, when rotation must be picked up.
-`GetClientCertificateFunc` reopens the store on every handshake, which is
-usually fine for native stores but costly for token backends.
+Use a long-lived context in both cases. Use a short-lived context only if later
+token access must stop after cancellation.
 
-## Credential Handling
+`ClientCertificateSource` does not monitor the store for replacement
+identities. Recreate the source when the application must load a new
+certificate.
 
-`WithCredentialPrompt` returns credentials as `[]byte`, not `string`.
+## Select identities
 
-- the library wipes the returned buffer after use, including when the
-  callback itself returns an error
-- callers that care about secret lifetime should return a dedicated buffer, not
-  a shared slice they plan to reuse
-- for PKCS#11/NSS login, this package now passes a transient string view of
-  that buffer to the underlying dependency instead of allocating an extra Go
-  copy itself, but cgo and the dependency may still copy internally
-- this improves handling but is not a high-assurance secret-memory scheme
+Helpers that select one identity return the best match. They do not return all
+matches.
 
-## Scope
+The current scoring method uses these preferences:
 
-`go-certstore` is a library for working with X.509 certificate identities that
-already exist in native stores or token/database backends.
+1. If requested, prefer an identity that is known to use hardware.
+2. Prefer a certificate that is currently valid.
+3. Prefer a certificate with a later expiration time.
 
-It is intended for:
+The score is a heuristic. It does not give a strict sort order.
 
-- enumerating certificate + private key identities
-- selecting identities for mTLS and related client-certificate flows
-- retrieving the leaf certificate or available X.509 chain
-- obtaining a `crypto.Signer` backed by the underlying native key handle, token, or database
+Set `SelectOptions.RequireCurrentlyValid` to reject expired and not-yet-valid
+certificates. `ClientCertificateSource` always requires a currently valid
+certificate.
 
-It is not intended for:
+Use `FindIdentities` or `FilterIdentities` to inspect all matches.
 
-- SSH keys or SSH certificates
-- generic key management or secret storage
-- creating a universal abstraction over every possible credential store
-- hiding backend-specific configuration that the application should choose explicitly
+## Use identity metadata
 
-## Convenience Boundary
+Metadata content depends on the backend:
 
-This package keeps the library/application boundary explicit.
+- Native backends supply the backend name, key type, label, and a certificate-derived URI.
+- PKCS#11 supplies token data through `PKCS11IdentityInfo`.
+- NSS supplies backend data through `NSSIdentityInfo`.
 
-The library handles:
+Capability metadata has two interfaces:
 
-- backend access
-- identity enumeration
-- identity selection helpers
-- signer construction
-- TLS client-certificate integration helpers
+- `IdentityInfo` supplies Boolean values such as `IsHardwareBacked()`.
+- `IdentityCapabilityInfo` supplies `yes`, `no`, or `unknown` states.
 
-The application is expected to handle:
+Use `IdentityCapabilityInfo` if the application must distinguish `no` from
+`unknown`.
 
-- how to discover modules, profiles, or tokens
-- which backend to use in a given environment
-- how to collect credentials or passwords from users
-- how to choose defaults and present UX
-- any environment-specific convenience behavior
+## Handle credentials
 
-That is why backends such as PKCS#11 and NSS require explicit module/profile
-configuration instead of embedding discovery or prompting policy in the library.
+`WithCredentialPrompt` returns credentials as `[]byte`, not as `string`.
 
-## Backend Resolution
+- Return a dedicated buffer if secret lifetime is important.
+- Do not return a shared slice that other code will use again.
+- The library clears the returned buffer after use.
+- The library also clears the buffer if the callback returns an error.
 
-`Open(context.Background())` with no options uses the native backend for the current platform.
+For PKCS#11 and NSS login, the package passes a temporary string view to the
+dependency. The cgo runtime or the dependency can make an internal copy.
+Therefore, this method is not a high-assurance secret-memory system.
 
-On Linux, that native path returns `ErrUnsupportedBackend` because there is no
-single standard system client-certificate store for this library to target.
+## Check signing support
 
-`Open(context.Background(), WithBackend(BackendAuto), ...)` follows these rules:
+| Algorithm | macOS | Windows CNG | Windows CryptoAPI | PKCS#11 | NSS |
+|---|:---:|:---:|:---:|:---:|:---:|
+| RSA PKCS#1 v1.5 with SHA-1, SHA-256, SHA-384, or SHA-512 | Yes | Yes | Yes | Yes | Yes |
+| RSA-PSS with SHA-256, SHA-384, or SHA-512 | Yes | Yes | No | Yes | Yes |
+| ECDSA with SHA-1, SHA-256, SHA-384, or SHA-512 | Yes | Yes | No | Yes | Yes |
 
-- macOS and Windows use the native backend by default
-- any PKCS#11 option switches resolution to the PKCS#11 backend family, and the module path then becomes required
-- any NSS option switches resolution to the NSS backend family, and both module path and profile directory then become required
-- on Windows, `WithWindowsStoreLocation` / `WithWindowsStoreName` select the system store (default CurrentUser\\MY)
-- Windows store options cannot be combined with PKCS#11 or NSS options
+Direct use of `crypto.Signer` can have backend-specific limits. On macOS,
+RSA-PSS requires a salt length that equals the hash length.
 
-Opening a LocalMachine store read-only does not inherently require elevation.
-Access to a certificate's private key depends on that key's ACL; creating or
-modifying LocalMachine stores and certificates commonly requires elevated
-permissions.
+## Handle errors
 
-## Selection Semantics
+Use `errors.Is` to test exported errors:
 
-Helpers that select a single identity return one best match, not all matches.
+- `ErrIdentityNotFound` means that no identity matches the filters.
+- `ErrCredentialRequired` means that the backend requires credentials.
+- `ErrIncorrectCredential` means that the backend rejected the credentials.
+- `ErrUnsupportedBackend` means that the platform cannot use the backend.
+- `ErrInvalidConfiguration` means that an option or context is not valid.
+- `ErrClosed` means that code used a resource after it closed.
 
-- `FindTLSCertificate` returns one TLS client certificate
-- `NewClientCertificateSource` / `ClientCertificateFunc` / `GetClientCertificateFunc` return one certificate per handshake callback
-- `FindIdentity` returns one best-ranked identity
-- `FindIdentities` / `FilterIdentities` return all matching identities
+## Understand backend selection
 
-When more than one identity matches, the current ranking:
+`Open(context.Background())` uses the native backend for the current platform.
+On Linux, it returns `ErrUnsupportedBackend`.
 
-- ranks identities known to be hardware-backed above other matches when requested
-- gives a smaller bonus to currently valid certificates
-- also favors certificates with later expiry
+`Open(context.Background(), WithBackend(BackendAuto), ...)` uses these rules:
 
-This is a scoring heuristic, not a strict lexicographic guarantee.
+- macOS and Windows use the native backend by default.
+- A PKCS#11 option selects PKCS#11 and requires a module path.
+- An NSS option selects NSS and requires a module path and profile directory.
+- A Windows store option selects the configured Windows system store.
+- Windows store options cannot occur with PKCS#11 or NSS options.
 
-Set `SelectOptions.RequireCurrentlyValid` to reject expired or not-yet-valid
-certificates instead of merely accounting for validity during ranking.
-`ClientCertificateSource` always requires currently valid certificates, so it
-will not cache or re-select an identity outside its validity window.
+## Understand the project scope
 
-If you need to inspect every matching identity, use `FindIdentities`.
+Use this library to:
 
-## Metadata Semantics
+- List certificate and private-key identities.
+- Select identities for mutual TLS (mTLS) and other client-certificate operations.
+- Get a leaf certificate or an available X.509 certificate chain.
+- Get a `crypto.Signer` that uses the key in its original backend.
 
-Metadata quality depends on the backend.
+Do not use this library to:
 
-- Native backends expose generic identity metadata such as backend name, key type, label, and a cert-derived URI
-- PKCS#11 also exposes token-specific metadata through `PKCS11IdentityInfo`
-- NSS also exposes backend-specific metadata through `NSSIdentityInfo`
+- Manage SSH keys or SSH certificates.
+- Manage general keys or secrets.
+- Create identities or certificates.
+- Hide backend configuration from the application.
 
-Capability metadata also has two levels:
+The library accesses backends, lists identities, creates signers, and supplies
+TLS helpers. The application has these responsibilities:
 
-- `IdentityInfo` exposes compatibility booleans such as `IsHardwareBacked()`
-- `IdentityCapabilityInfo` exposes tri-state values so callers can distinguish `yes`, `no`, and `unknown`
+- Find modules, profiles, and tokens.
+- Select the backend for each environment.
+- Get credentials from users.
+- Select defaults and supply the user interface.
+- Supply other environment-specific behavior.
 
-Prefer `IdentityCapabilityInfo` when you need to distinguish `no` from `unknown`.
+For this reason, PKCS#11 and NSS require explicit module and profile options.
 
-## Error Handling
+## Migrate from v0.1.4 or earlier
 
-The most useful exported errors to branch on are:
+Version 0.2.0 introduced two breaking changes.
 
-- `ErrIdentityNotFound` when no identity matches the current filters
-- `ErrCredentialRequired` when a backend requires credentials or reports a credential state problem
-- `ErrIncorrectCredential` when backend credentials were supplied but rejected
-- `ErrUnsupportedBackend` when a backend is unavailable on the current platform or not implemented
-- `ErrClosed` when a signer or resource is used after explicit cleanup
+### Pass an open store to `FilterIdentities`
 
-## Docs
+`FilterIdentities` no longer opens the default store. Open the required store,
+pass it to `FilterIdentities`, and close it after use.
 
-- [PKCS#11 Usage](docs/pkcs11.md)
-- [NSS Usage](docs/nss.md)
+In v0.1.4 and earlier versions:
+
+```go
+idents, err := certstore.FilterIdentities(ctx, filter)
+```
+
+Current API:
+
+```go
+store, err := certstore.Open(ctx, openOpts...)
+if err != nil {
+    return err
+}
+defer store.Close()
+
+idents, err := certstore.FilterIdentities(ctx, store, filter)
+```
+
+Close each returned identity. The explicit store lets the application select
+PKCS#11, NSS, or a specific Windows store.
+
+### Do not pass a nil context
+
+In v0.1.4 and earlier versions, public APIs used `context.Background()` when
+the context was nil. These APIs now return `ErrInvalidConfiguration`.
+
+In v0.1.4 and earlier versions:
+
+```go
+store, err := certstore.Open(nil)
+```
+
+Current API:
+
+```go
+ctx := context.Background()
+store, err := certstore.Open(ctx)
+```
+
+This rule applies to all APIs that accept a context.
+
+## Read more
+
+- [PKCS#11 usage](docs/pkcs11.md)
+- [NSS usage](docs/nss.md)
 - [Examples](docs/examples.md)
 
-## Runnable examples
+Runnable programs are in the [`examples`](examples/) directory. These programs
+do not start a live TLS handshake or connect to a remote server.
 
-Runnable programs are available under `examples/`.
+Use `examples/mtls-source` as a model for long-lived `tls.Config` setup. Then,
+use the configuration with `tls.Dial` or `http.Transport`.
 
-None of the examples perform a live TLS handshake or dial a remote server.
-Use `examples/mtls-source` as the template for long-lived `tls.Config` wiring,
-then plug that config into your own `tls.Dial` or `http.Transport`.
+## Run local checks
 
-See [docs/examples.md](docs/examples.md) for runnable commands and PKCS#11/NSS flag usage.
+- Run `make check` to test the library on the current host.
+- Run `make lint` to run `golangci-lint`.
+- Run `make check-macos` to test the library and the macOS native backend.
+- Run `make check-linux` to run the Linux checks in Docker.
 
-## Local checks
+On Linux, use `make check` unless you require the Docker environment that CI
+uses.
 
-- `make check` runs the library test suite on the current host
-- `make lint` runs `golangci-lint` (also enforced in CI)
-- `make check-macos` runs `make check` and then the macOS native integration test
-- `make check-linux` runs the Linux preflight in Docker and is mainly useful on non-Linux hosts
-
-CI runs lint on Ubuntu, `go test -race ./...` on Linux, and platform tests plus example builds on Linux, macOS, and Windows.
-
-On Linux, prefer `make check` directly unless you specifically want Docker-based parity with the CI environment.
+CI runs lint on Ubuntu. It also runs race tests on Linux. CI builds the examples
+and runs platform tests on Linux, macOS, and Windows.
 
 ## Credits
 
-- macOS implementation inspired by [getvictor/mtls](https://github.com/getvictor/mtls)
+The macOS implementation uses ideas from
+[`getvictor/mtls`](https://github.com/getvictor/mtls).
 
 ## License
 
