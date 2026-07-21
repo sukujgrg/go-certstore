@@ -419,3 +419,9 @@ MIT
 This README aims to follow ASD-STE100 Simplified Technical English. Keep future
 edits consistent with its principles: use short sentences, active voice, and
 one term for each meaning.
+
+Exported Go package docs (rendered on
+[pkg.go.dev](https://pkg.go.dev/github.com/sukujgrg/go-certstore)) follow the
+same wording principles. Prefer the same terms as this README for scope,
+non-goals, backends, and credentials. Use normal Go doc conventions: complete
+sentences, `[Name]` links, and `#` section headings where useful.

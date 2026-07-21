@@ -1,24 +1,24 @@
 # NSS Usage
 
-This document covers explicit NSS backend usage with `go-certstore`.
+This document describes explicit NSS backend usage with `go-certstore`.
 
-## Boundary
+## Understand the boundary
 
-The NSS backend is intentionally explicit.
+The NSS backend requires explicit configuration.
 
 The library requires:
 
 - an NSS `softokn3` module path
-- an NSS profile/database directory
-- an application-provided credential callback when the database requires one
+- an NSS profile or database directory
+- an application-supplied credential callback when the database requires one
 
 The library does not:
 
-- discover Firefox profiles for you
-- locate the NSS module for you
+- find Firefox profiles
+- find the NSS module
 - prompt the user directly
 
-Those decisions belong in the application that uses this library.
+The application makes those decisions.
 
 ## Open an NSS profile
 
@@ -41,13 +41,13 @@ defer store.Close()
 `WithNSSProfileDir` accepts either:
 
 - a plain directory path such as `/path/to/nssdb`
-- an explicit NSS database spec such as `sql:/path/to/nssdb` or `dbm:/path/to/nssdb`
+- an explicit NSS database specification such as `sql:/path/to/nssdb` or `dbm:/path/to/nssdb`
 
 If you pass a plain directory, the library treats it as an `sql:` database.
 
-## Selecting identities
+## Select identities
 
-Once the store is open, the normal helper APIs apply:
+After the store is open, use the normal helper APIs:
 
 ```go
 ident, err := certstore.FindIdentity(ctx, store, certstore.FindIdentityOptions{
@@ -61,9 +61,9 @@ if err != nil {
 defer ident.Close()
 ```
 
-For TLS client selection, open the store once and use
-`NewClientCertificateSource` so handshakes reuse cached certificate/signer
-sessions:
+For TLS client selection, open the store one time and use
+`NewClientCertificateSource`. Handshakes then reuse cached certificates and
+signers:
 
 ```go
 store, err := certstore.Open(ctx,
@@ -90,26 +90,30 @@ tlsConfig := &tls.Config{
 }
 ```
 
-Prefer this over `GetClientCertificateFunc`, which reopens NSS on every
-handshake and can leave token sessions waiting on GC. The source caches returned
-certificates across handshakes, skips expired cache entries when selecting
-again, and keeps previously returned signers alive until `Close` for in-flight
-handshakes. It does not watch the profile for replaced identities; recreate the
-source, or keep process lifetime aligned with certificate lifetime, when
-rotation must be picked up. As with PKCS#11, token-backed signers may reuse the
-context passed to `Identity.Signer(ctx)` for later re-authentication, and the
-source reuses the context provided at construction because Go's TLS hook does
-not expose a per-handshake context.
+Prefer this method over `GetClientCertificateFunc`. That helper opens NSS for
+each handshake. It can leave token sessions waiting for garbage collection.
 
-## Metadata
+The source caches returned certificates across handshakes. It skips expired
+cache entries when it selects again. It keeps previously returned signers alive
+until `Close` for handshakes that are still in progress.
 
-NSS identities expose:
+The source does not monitor the profile for replaced identities. Recreate the
+source when the application must load a new certificate. As an alternative,
+keep the process lifetime aligned with the certificate lifetime.
+
+Token-backed signers can reuse the context from `Identity.Signer(ctx)` for
+later re-authentication. The source reuses the context from construction. Go's
+TLS hook does not supply a context for each handshake.
+
+## Use identity metadata
+
+NSS identities supply:
 
 - generic metadata through `IdentityInfo`
-- tri-state capability metadata through `IdentityCapabilityInfo`
+- capability metadata with `yes`, `no`, or `unknown` through `IdentityCapabilityInfo`
 - NSS-specific metadata through `NSSIdentityInfo`
 
-For example:
+Example:
 
 ```go
 if info, ok := ident.(certstore.NSSIdentityInfo); ok {
@@ -119,7 +123,7 @@ if info, ok := ident.(certstore.NSSIdentityInfo); ok {
 }
 ```
 
-## Runnable examples
+## Run the examples
 
 All runnable examples in `examples/` support `-backend nss`.
 
@@ -142,7 +146,7 @@ go run ./examples/tls-client \
   -subject "client.example.com"
 ```
 
-Recommended long-lived mTLS source:
+Use the recommended long-lived mTLS source:
 
 ```sh
 go run ./examples/mtls-source \
@@ -163,12 +167,12 @@ go run ./examples/export-cert \
   -chain
 ```
 
-## Local testing without Firefox
+## Test locally without Firefox
 
-You do not need Firefox installed to test the NSS backend.
+You do not need Firefox to test the NSS backend.
 
 You can create a standalone NSS database, import a test identity, and point
-`go-certstore` at that database directly.
+`go-certstore` at that database.
 
 ### 1. Install NSS command-line tools
 
@@ -243,7 +247,7 @@ Linux:
 find /usr -name 'libsoftokn3.so' 2>/dev/null
 ```
 
-### 7. Run the examples against the standalone NSS DB
+### 7. Run the examples against the standalone NSS database
 
 ```sh
 go run ./examples/list-identities \
@@ -277,14 +281,16 @@ go run ./examples/export-cert \
   -chain
 ```
 
-### Password-protected NSS DBs
+### Use a password-protected NSS database
 
-If you want to test credential handling instead of using an empty-password DB:
+To test credential handling, create a new database. Do not reuse the
+empty-password database from the earlier steps.
 
 ```sh
+mkdir -p /tmp/nssdb-pass
 printf 'secret123\n' > /tmp/nss-pass.txt
-certutil -N -d sql:/tmp/nssdb -f /tmp/nss-pass.txt
-pk12util -i /tmp/nss-client.p12 -d sql:/tmp/nssdb -K secret123 -W ""
+certutil -N -d sql:/tmp/nssdb-pass -f /tmp/nss-pass.txt
+pk12util -i /tmp/nss-client.p12 -d sql:/tmp/nssdb-pass -K secret123 -W ""
 ```
 
 Then run the examples with:
@@ -293,17 +299,23 @@ Then run the examples with:
 CERTSTORE_PIN=secret123 go run ./examples/list-identities \
   -backend nss \
   -module /path/to/libsoftokn3.so_or_dylib \
-  -profile /tmp/nssdb
+  -profile /tmp/nssdb-pass
 ```
 
-The examples accept `-pin` or `CERTSTORE_PIN`, but the library itself still
-expects the application to provide credentials through
-`WithCredentialPrompt(...)`, which returns a wipeable `[]byte` buffer rather
-than a `string`. `go-certstore` avoids making an extra Go `[]byte` to `string`
-copy itself before calling the underlying NSS/PKCS#11 dependency, but the
-dependency and cgo boundary may still create transient copies.
+The examples accept `-pin`, `CERTSTORE_PIN`, or `PKCS11_PIN`. The library still
+expects the application to supply credentials through
+`WithCredentialPrompt(...)`.
 
-### Profile argument detail
+The callback returns `[]byte`, not a `string`. The library clears that buffer
+after use. The library also clears the buffer if the callback returns an error.
+If secret lifetime is important, return a dedicated buffer. Do not return a
+shared slice that other code will use again.
+
+The package passes a temporary string view to the NSS dependency. The cgo
+runtime or the dependency can make an internal copy. This method is not a
+high-assurance secret-memory system.
+
+### Pass a profile argument
 
 Pass either:
 
@@ -311,4 +323,4 @@ Pass either:
 - `sql:/tmp/nssdb`
 
 If you pass a plain directory path, the library treats it as an `sql:` NSS
-database automatically.
+database.

@@ -1,14 +1,15 @@
 # Convergence Audit Prompt
 
 ```text
-Run a 3-pass convergence audit on this repository. Use the current workspace state, but re-read `README.md` at the start of each pass and treat its scope, non-goals, and library/application boundary as the contract.
+Run a 3-pass convergence audit on this repository. Use the current workspace state, but re-read `README.md` and the exported package docs (especially the package comment in `certstore.go`) at the start of each pass. Treat their shared scope, non-goals, and library/application boundary as the contract. Prefer `README.md` when resolving narrative conflicts, and keep package docs aligned with that contract.
 
 General rules for all passes:
 - Audit the entire repo, not a subset.
-- Stay within the scope/boundary defined in `README.md`.
+- Stay within the scope/boundary defined in `README.md` and the matching package docs.
 - Fix concrete issues instead of only reporting them.
 - Add or strengthen regression tests for every real correctness fix.
 - Update docs/comments only when they are stale, misleading, or incomplete relative to actual behavior.
+- When changing user-facing docs, follow `## Documentation style` in `README.md` for both README prose and exported Go package docs.
 - Do not spend time on cosmetic-only edits.
 - Run the relevant test suite after each pass that changes code/tests.
 - Keep going through all 3 passes before stopping.
@@ -61,11 +62,12 @@ Pass 2: Adversarial Review Pass
 Pass 3: Docs and Contract Alignment Pass
 - Compare implementation and tests against:
   - `README.md`
-  - exported Go doc comments
+  - exported Go package/doc comments (including pkg.go.dev-facing package docs)
   - examples
   - docs under `docs/`
   - inline code comments
 - Find stale, misleading, or incomplete documentation/comments that would cause users or maintainers to misunderstand real behavior.
+- Check that README and package docs stay aligned on scope, non-goals, platform support, and credential guarantees, using consistent terminology.
 - Pay specific attention to credential/PIN handling docs:
   - whether buffers are wiped or not
   - whether secrets are copied internally
@@ -84,8 +86,8 @@ Final output requirements:
 - Section 3: Pass 3 findings and fixes
 - Section 4: Tests added/updated
 - Section 5: Remaining risks or things you could not verify
-- Section 6: Explicit statement on whether the repo is now aligned with `README.md`
-- Section 7: A recommended git commit message for the full change set, and it must include a conventional change-kind prefix such as `fix:`, `refactor:`, `docs:`, `test:`, or `ci:`
+- Section 6: Explicit statement on whether the repo is now aligned with `README.md` and the exported package docs
+- Section 7: A recommended git commit message for the full change set, and it must include a conventional change-kind prefix such as `fix:`, `feat:`, `refactor:`, `docs:`, `test:`, `ci:`, `perf:`, `build:`, or `chore:`
 
 Do not stop early after the first issue. Finish all 3 passes and only then conclude.
 ```

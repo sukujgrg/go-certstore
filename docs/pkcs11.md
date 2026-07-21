@@ -1,18 +1,18 @@
 # PKCS#11 Usage
 
-This document covers practical PKCS#11 usage with `go-certstore`, including
-YubiKey/OpenSC-style hardware tokens and SoftHSM for local development.
+This document describes PKCS#11 usage with `go-certstore`. It covers YubiKey
+and OpenSC hardware tokens, and SoftHSM for local development.
 
-## Overview
+## Understand the PKCS#11 backend
 
-Use the PKCS#11 backend when your client certificate identity lives in a token
+Use the PKCS#11 backend when the client certificate identity lives in a token
 or provider that exposes a PKCS#11 module.
 
-Typical examples:
+Examples:
 
-- YubiKey PIV via OpenSC
+- YubiKey PIV through OpenSC
 - smart cards
-- HSMs
+- hardware security modules (HSMs)
 - SoftHSM for local testing
 
 The backend requires an explicit PKCS#11 module path:
@@ -29,9 +29,9 @@ if err != nil {
 defer store.Close()
 ```
 
-## YubiKey / OpenSC
+## Use YubiKey or OpenSC
 
-For YubiKey PIV on systems using OpenSC, the PKCS#11 module is typically
+For YubiKey PIV on systems that use OpenSC, the PKCS#11 module is usually
 `opensc-pkcs11.so`.
 
 Example:
@@ -63,35 +63,33 @@ if err != nil {
 defer ident.Close()
 ```
 
-The library intentionally leaves PIN collection to the application. Use
-`WithCredentialPrompt(...)` to plug in whatever is appropriate for your app:
+The library does not collect PINs. The application supplies credentials through
+`WithCredentialPrompt(...)`. Suitable sources include:
 
-- GUI prompt
-- terminal prompt
-- keychain/secret manager lookup
-- env/config injection
+- a GUI prompt
+- a terminal prompt
+- a keychain or secret manager
+- an environment variable or configuration value
 
-The callback returns `[]byte`, and the library wipes that buffer after use,
-including when the callback itself returns an error. Applications that care
-about secret lifetime should return a dedicated buffer instead of a shared
-slice they plan to keep using.
+The callback returns `[]byte`, not a `string`. The library clears that buffer
+after use. The library also clears the buffer if the callback returns an error.
+If secret lifetime is important, return a dedicated buffer. Do not return a
+shared slice that other code will use again.
 
-For PKCS#11 login, `go-certstore` avoids making an extra Go `[]byte` to
-`string` copy itself before calling the underlying dependency, but the
-dependency and cgo boundary may still create transient copies. This is an
-improvement, not a high-assurance secret-memory guarantee.
+For PKCS#11 login, the package passes a temporary string view to the
+dependency. The cgo runtime or the dependency can make an internal copy. This
+method is not a high-assurance secret-memory system.
 
-Selection note:
+Selection behavior:
 
-- `FindIdentity` returns one best-ranked identity when multiple PKCS#11
-  identities match
+- `FindIdentity` returns one best-ranked identity when more than one PKCS#11 identity matches
 - `FindIdentities` returns all matching identities
 - `FindTLSCertificate` returns one best-ranked TLS certificate
 
-## Explicit signer cleanup
+## Close signers explicitly
 
 Some backends keep native key handles alive while the signer exists. When you
-obtain a signer directly, close it explicitly when you are done:
+get a signer directly, close it when you are done:
 
 ```go
 signer, err := ident.Signer(ctx)
@@ -101,19 +99,19 @@ if err != nil {
 defer certstore.CloseSigner(signer)
 ```
 
-This is most relevant for PKCS#11 and other native-handle-backed signers.
+This is most important for PKCS#11 and other signers that use native handles.
 
-Because `crypto.Signer.Sign` does not accept a context, PKCS#11 signers may
-reuse the context passed to `Identity.Signer(ctx)` if the token requires a
-later login during signing. Prefer a long-lived context unless you want that
-later sign path to be cancelable.
+`crypto.Signer.Sign` does not accept a context. PKCS#11 signers can reuse the
+context from `Identity.Signer(ctx)` if the token requires a later login during
+signing. Prefer a long-lived context unless that later sign path must stop
+after cancellation.
 
-## SoftHSM setup
+## Set up SoftHSM
 
-SoftHSM is useful for local development and CI because it behaves like a
-software token and supports PKCS#11.
+SoftHSM is useful for local development and CI. It behaves like a software
+token and supports PKCS#11.
 
-End-to-end, the setup flow is:
+Setup steps:
 
 1. Install SoftHSM.
 2. Create a token directory and `softhsm2.conf`.
@@ -167,15 +165,14 @@ export SOFTHSM2_CONF=/tmp/softhsm2.conf
 
 ### Initialize a token
 
-This creates a new token in the configured token directory. The example below
+This command creates a new token in the configured token directory. The example
 uses:
 
 - token label: `go-certstore-test`
 - security officer PIN: `654321`
 - user PIN: `123456`
 
-The user PIN is the PIN your Go code will supply through
-`WithCredentialPrompt(...)`.
+Your Go code supplies the user PIN through `WithCredentialPrompt(...)`.
 
 ```sh
 "$SOFTHSM2_UTIL" --module "$SOFTHSM2_MODULE" \
@@ -185,7 +182,7 @@ The user PIN is the PIN your Go code will supply through
   --pin 123456
 ```
 
-You can confirm that the token exists with:
+Confirm that the token exists:
 
 ```sh
 "$SOFTHSM2_UTIL" --module "$SOFTHSM2_MODULE" --show-slots
@@ -193,10 +190,10 @@ You can confirm that the token exists with:
 
 ### Prepare a private key and certificate
 
-If you already have a PKCS#8 PEM private key and matching certificate, you can
-skip this section.
+If you already have a PKCS#8 PEM private key and a matching certificate, skip
+this section.
 
-Generate a test RSA key and self-signed certificate with OpenSSL:
+Generate a test RSA key and a self-signed certificate with OpenSSL:
 
 ```sh
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out key.pem
@@ -219,6 +216,9 @@ mv key-pkcs8.pem key.pem
 
 The private key file must be PKCS#8 PEM.
 
+For the self-signed leaf from the previous section, import only the key and the
+leaf certificate:
+
 ```sh
 "$SOFTHSM2_UTIL" --module "$SOFTHSM2_MODULE" \
   --import key.pem \
@@ -234,7 +234,11 @@ The private key file must be PKCS#8 PEM.
   --label "client-key" \
   --id 01 \
   --pin 123456
+```
 
+If you have a CA-signed leaf and a CA certificate, import the CA as well:
+
+```sh
 "$SOFTHSM2_UTIL" --module "$SOFTHSM2_MODULE" \
   --import ca-cert.pem \
   --import-type cert \
@@ -244,11 +248,14 @@ The private key file must be PKCS#8 PEM.
   --pin 123456
 ```
 
+Skip the CA import for the self-signed leaf in this guide. That leaf is not
+signed by a separate CA.
+
 At this point you have:
 
-- a private key stored in the token
+- a private key in the token
 - a leaf certificate associated with that key
-- an optional CA certificate available for chain building
+- an optional CA certificate for chain building, if you imported one
 
 ### Open the token from Go
 
@@ -289,13 +296,13 @@ go run ./examples/mtls-source \
   -subject "pkcs11-client.example.com"
 ```
 
-See [examples.md](examples.md) for `tls-client` and `export-cert` as well.
+See [examples.md](examples.md) for `tls-client` and `export-cert`.
 
-## TLS helper flow
+## Configure a TLS client certificate
 
-For TLS client authentication, open the store once and use
-`NewClientCertificateSource` so handshakes reuse cached certificate/signer
-sessions:
+For TLS client authentication, open the store one time and use
+`NewClientCertificateSource`. Handshakes then reuse cached certificates and
+signers:
 
 ```go
 store, err := certstore.Open(ctx,
@@ -322,12 +329,17 @@ tlsConfig := &tls.Config{
 }
 ```
 
-Prefer this over `GetClientCertificateFunc`, which reopens the PKCS#11 module on
-every handshake and can leave token sessions waiting on GC. The source caches
-returned certificates across handshakes, skips expired cache entries when
-selecting again, and keeps previously returned signers alive until `Close` for
-in-flight handshakes. It does not watch the token for replaced identities;
-recreate the source, or keep process lifetime aligned with certificate
-lifetime, when rotation must be picked up. It also reuses the context supplied
-when you create the source, because the Go TLS handshake API does not pass a
-per-handshake context into `tls.Config.GetClientCertificate`.
+Prefer this method over `GetClientCertificateFunc`. That helper opens the
+PKCS#11 module for each handshake. It can leave token sessions waiting for
+garbage collection.
+
+The source caches returned certificates across handshakes. It skips expired
+cache entries when it selects again. It keeps previously returned signers alive
+until `Close` for handshakes that are still in progress.
+
+The source does not monitor the token for replaced identities. Recreate the
+source when the application must load a new certificate. As an alternative,
+keep the process lifetime aligned with the certificate lifetime.
+
+The source reuses the context from construction. The Go TLS handshake API does
+not pass a context for each handshake into `tls.Config.GetClientCertificate`.
