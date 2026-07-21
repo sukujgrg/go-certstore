@@ -26,6 +26,31 @@ import (
 #cgo LDFLAGS: -framework CoreFoundation -framework Security
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
+
+static CFMutableDictionaryRef createIdentityQuery(void) {
+    CFMutableDictionaryRef query = CFDictionaryCreateMutable(
+        kCFAllocatorDefault, 0,
+        &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks
+    );
+    if (query == NULL) {
+        return NULL;
+    }
+    CFDictionaryAddValue(query, kSecClass, kSecClassIdentity);
+    CFDictionaryAddValue(query, kSecReturnRef, kCFBooleanTrue);
+    CFDictionaryAddValue(query, kSecMatchLimit, kSecMatchLimitAll);
+    return query;
+}
+
+static void releaseCFType(CFTypeRef ref) {
+    if (ref != NULL) {
+        CFRelease(ref);
+    }
+}
+
+static void appendCertificate(CFMutableArrayRef array, SecCertificateRef cert) {
+    CFArrayAppendValue(array, cert);
+}
 */
 import "C"
 
@@ -45,19 +70,11 @@ func (s *macStore) Identities(ctx context.Context) ([]Identity, error) {
 		return nil, err
 	}
 
-	query := C.CFDictionaryCreateMutable(
-		C.kCFAllocatorDefault, 0,
-		&C.kCFTypeDictionaryKeyCallBacks,
-		&C.kCFTypeDictionaryValueCallBacks,
-	)
+	query := C.createIdentityQuery()
 	if query == 0 {
 		return nil, fmt.Errorf("list macOS identities: failed to create CFDictionary")
 	}
-	defer C.CFRelease(C.CFTypeRef(unsafe.Pointer(query))) //nolint:govet
-
-	C.CFDictionaryAddValue(query, unsafe.Pointer(C.kSecClass), unsafe.Pointer(C.kSecClassIdentity))      //nolint:govet
-	C.CFDictionaryAddValue(query, unsafe.Pointer(C.kSecReturnRef), unsafe.Pointer(C.kCFBooleanTrue))     //nolint:govet
-	C.CFDictionaryAddValue(query, unsafe.Pointer(C.kSecMatchLimit), unsafe.Pointer(C.kSecMatchLimitAll)) //nolint:govet
+	defer C.releaseCFType(C.CFTypeRef(query))
 
 	var result C.CFTypeRef
 	status := C.SecItemCopyMatching(C.CFDictionaryRef(query), &result)
@@ -91,9 +108,8 @@ func (s *macStore) Close() {}
 // macIdentity implements Identity for a macOS Keychain identity.
 type macIdentity struct {
 	ref       C.SecIdentityRef
-	certMu    sync.Mutex
+	mu        sync.Mutex
 	cert      *x509.Certificate
-	certRaw   []byte
 	keyRef    C.SecKeyRef
 	closeOnce sync.Once
 }
@@ -146,10 +162,17 @@ func (id *macIdentity) Certificate(ctx context.Context) (*x509.Certificate, erro
 	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
-	id.certMu.Lock()
-	defer id.certMu.Unlock()
+	id.mu.Lock()
+	defer id.mu.Unlock()
+	return id.certificateLocked()
+}
+
+func (id *macIdentity) certificateLocked() (*x509.Certificate, error) {
 	if id.cert != nil {
 		return id.cert, nil
+	}
+	if id.ref == 0 {
+		return nil, ErrClosed
 	}
 
 	var certRef C.SecCertificateRef
@@ -178,7 +201,6 @@ func (id *macIdentity) Certificate(ctx context.Context) (*x509.Certificate, erro
 		return nil, fmt.Errorf("x509.ParseCertificate: %w", err)
 	}
 	id.cert = cert
-	id.certRaw = block.Bytes
 	return cert, nil
 }
 
@@ -187,9 +209,15 @@ func (id *macIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificat
 		return nil, err
 	}
 
-	cert, err := id.Certificate(ctx)
+	id.mu.Lock()
+	defer id.mu.Unlock()
+
+	cert, err := id.certificateLocked()
 	if err != nil {
 		return nil, err
+	}
+	if id.ref == 0 {
+		return nil, ErrClosed
 	}
 
 	var certRef C.SecCertificateRef
@@ -199,7 +227,7 @@ func (id *macIdentity) CertificateChain(ctx context.Context) ([]*x509.Certificat
 	defer C.CFRelease(C.CFTypeRef(certRef))
 
 	certs := C.CFArrayCreateMutable(C.kCFAllocatorDefault, 1, &C.kCFTypeArrayCallBacks)
-	C.CFArrayAppendValue(certs, unsafe.Pointer(certRef)) //nolint:govet
+	C.appendCertificate(certs, certRef)
 	defer C.CFRelease(C.CFTypeRef(certs))
 
 	var policy C.SecPolicyRef = C.SecPolicyCreateBasicX509()
@@ -268,6 +296,11 @@ func (id *macIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
 	if err := contextReady(ctx); err != nil {
 		return nil, err
 	}
+	id.mu.Lock()
+	defer id.mu.Unlock()
+	if id.ref == 0 {
+		return nil, ErrClosed
+	}
 
 	if id.keyRef == 0 {
 		var keyRef C.SecKeyRef
@@ -280,7 +313,7 @@ func (id *macIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
 		id.keyRef = keyRef
 	}
 
-	cert, err := id.Certificate(ctx)
+	cert, err := id.certificateLocked()
 	if err != nil {
 		return nil, err
 	}
@@ -288,9 +321,6 @@ func (id *macIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
 	// Retain the key so the signer owns its own reference, independent of
 	// the identity's lifecycle. The caller may Close() the identity while
 	// the signer is still in use (e.g. for TLS handshakes).
-	if id.keyRef == 0 {
-		return nil, fmt.Errorf("create macOS signer: mac identity has no private key")
-	}
 	C.CFRetain(C.CFTypeRef(id.keyRef))
 
 	signer := &macSigner{
@@ -303,6 +333,8 @@ func (id *macIdentity) Signer(ctx context.Context) (crypto.Signer, error) {
 
 func (id *macIdentity) Close() {
 	id.closeOnce.Do(func() {
+		id.mu.Lock()
+		defer id.mu.Unlock()
 		if id.keyRef != 0 {
 			C.CFRelease(C.CFTypeRef(id.keyRef))
 			id.keyRef = 0
@@ -408,7 +440,7 @@ func (s *macSigner) algorithm(opts crypto.SignerOpts) (C.SecKeyAlgorithm, error)
 		case crypto.SHA1:
 			return C.kSecKeyAlgorithmECDSASignatureDigestX962SHA1, nil
 		}
-	default:
+	case *rsa.PublicKey:
 		if isPSS {
 			// RSA-PSS (required by TLS 1.3)
 			switch hash {
@@ -432,6 +464,8 @@ func (s *macSigner) algorithm(opts crypto.SignerOpts) (C.SecKeyAlgorithm, error)
 				return C.kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA1, nil
 			}
 		}
+	default:
+		return 0, fmt.Errorf("%w: unsupported macOS public key type %T", ErrMechanismUnsupported, s.pub)
 	}
 	return 0, ErrUnsupportedHash
 }

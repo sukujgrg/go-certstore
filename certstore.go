@@ -98,7 +98,8 @@ type Store interface {
 	// available in the store. ctx must not be nil.
 	Identities(ctx context.Context) ([]Identity, error)
 
-	// Close releases any resources held by the store.
+	// Close releases any resources held by the store. It is idempotent and safe
+	// to call concurrently with other Store methods.
 	Close()
 }
 
@@ -118,13 +119,17 @@ type Identity interface {
 	// not accept one.
 	Signer(ctx context.Context) (crypto.Signer, error)
 
-	// Close releases any resources held by this identity.
+	// Close releases any resources held by this identity. It is idempotent and
+	// safe to call concurrently with other Identity methods. Operations that
+	// require released native resources return ErrClosed; already-cached
+	// certificate data and immutable metadata may remain available.
 	Close()
 }
 
 // CloseableSigner is a crypto.Signer with explicit resource cleanup. Backends
 // that hold native key handles may implement this so callers can release
 // signer-owned resources deterministically instead of waiting for GC.
+// Close is idempotent and safe to call concurrently with Sign.
 type CloseableSigner interface {
 	crypto.Signer
 	Close() error

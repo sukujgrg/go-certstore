@@ -91,7 +91,7 @@ jobs:
         env:
           CC: gcc
           CERTSTORE_RUN_NATIVE_TESTS: "1"
-        run: go test ./...
+        run: go test -race ./...
 
       - name: Build examples
         if: runner.os != 'Windows'

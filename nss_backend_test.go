@@ -51,14 +51,14 @@ func TestNSSIdentityMetadata(t *testing.T) {
 	_, _, leaf, _ := newTestChain(t, "NSS CA", true)
 
 	base := &pkcs11Identity{
-		module: &pkcs11Module{
-			module: "libsoftokn3.so",
-			slotID: 2,
-			tokenInfo: pkcs11.TokenInfo{
-				Label:        "NSS Certificate DB",
-				SerialNumber: "0001",
-				Flags:        pkcs11.CKF_LOGIN_REQUIRED,
-			},
+		module:     &pkcs11Module{closed: true},
+		backend:    BackendNSS,
+		modulePath: "libsoftokn3.so",
+		slotID:     2,
+		tokenInfo: pkcs11.TokenInfo{
+			Label:        "NSS Certificate DB",
+			SerialNumber: "0001",
+			Flags:        pkcs11.CKF_LOGIN_REQUIRED,
 		},
 		keyID:   []byte{0x01, 0x02, 0x03},
 		label:   "db-cert",
@@ -116,6 +116,20 @@ func TestNSSIdentityMetadata(t *testing.T) {
 	if !strings.Contains(uri, "id="+hex.EncodeToString(base.keyID)) {
 		t.Fatalf("URI() missing key id: %q", uri)
 	}
+
+	ident.Close()
+	if got := ident.ModulePath(); got != "libsoftokn3.so" {
+		t.Fatalf("ModulePath() after close = %q", got)
+	}
+	if got := ident.TokenLabel(); got != "NSS Certificate DB" {
+		t.Fatalf("TokenLabel() after close = %q", got)
+	}
+	if got := ident.TokenSerial(); got != "0001" {
+		t.Fatalf("TokenSerial() after close = %q", got)
+	}
+	if got := ident.URI(); got != uri {
+		t.Fatalf("URI() after close = %q, want %q", got, uri)
+	}
 }
 
 func TestNSSIdentityLabelFallsBackToCertificateSubject(t *testing.T) {
@@ -123,11 +137,10 @@ func TestNSSIdentityLabelFallsBackToCertificateSubject(t *testing.T) {
 
 	ident := &nssIdentity{
 		pkcs11Identity: &pkcs11Identity{
-			module: &pkcs11Module{
-				tokenInfo: pkcs11.TokenInfo{Label: "NSS Certificate DB"},
-			},
-			certDER: leaf.Raw,
-			cert:    leaf,
+			backend:   BackendNSS,
+			tokenInfo: pkcs11.TokenInfo{Label: "NSS Certificate DB"},
+			certDER:   leaf.Raw,
+			cert:      leaf,
 		},
 		profileDir:  "/tmp/nssdb",
 		profileSpec: "sql:/tmp/nssdb",
