@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="go-certstore gives Go applications access to X.509 certificate identities across native stores, PKCS#11 tokens, and NSS databases.">
+  <meta name="theme-color" content="#ffffff">
+  <meta property="og:title" content="go-certstore — X.509 identities for Go">
+  <meta property="og:description" content="A Go library for native certificate stores, PKCS#11 tokens, and NSS databases.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://sukujgrg.github.io/go-certstore/">
+  <meta property="og:image" content="https://sukujgrg.github.io/go-certstore/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <title>go-certstore — X.509 identities for Go</title>
+  <link rel="icon" href="og.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to documentation</a>
+
+  <header class="site-header">
+    <div class="header-left">
+      <button class="menu-button" type="button" aria-label="Open documentation menu" aria-expanded="false">☰</button>
+      <a class="package-name" href="#overview"><span class="package-mark" aria-hidden="true">go</span><span>go-certstore</span></a>
+    </div>
+    <nav class="header-links" aria-label="Project links">
+      <a href="https://github.com/sukujgrg/go-certstore" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <div class="docs-shell">
+    <aside class="sidebar" aria-label="Documentation navigation">
+      <nav>
+        <div class="nav-group">
+          <span>Introduction</span>
+          <a class="active" href="#overview">Overview</a>
+          <a href="#install">Installation</a>
+          <a href="#quick-start">Quick start</a>
+          <a href="#platforms">Platform support</a>
+        </div>
+        <div class="nav-group">
+          <span>Backends</span>
+          <a href="#native" data-backend-link="native">Native stores</a>
+          <a href="#pkcs11" data-backend-link="pkcs11">PKCS#11</a>
+          <a href="#nss" data-backend-link="nss">NSS</a>
+        </div>
+        <div class="nav-group">
+          <span>Usage</span>
+          <a href="#tls">TLS client certificates</a>
+          <a href="#selection">Identity selection</a>
+          <a href="#credentials">Credentials &amp; lifetime</a>
+        </div>
+        <div class="nav-group">
+          <span>Resources</span>
+          <a href="https://pkg.go.dev/github.com/sukujgrg/go-certstore" target="_blank" rel="noreferrer">Go Reference ↗</a>
+          <a href="https://github.com/sukujgrg/go-certstore" target="_blank" rel="noreferrer">GitHub ↗</a>
+          <a href="https://github.com/sukujgrg/go-certstore/blob/main/docs/examples.md" target="_blank" rel="noreferrer">Examples guide ↗</a>
+          <a href="https://github.com/sukujgrg/go-certstore/blob/main/docs/pkcs11.md" target="_blank" rel="noreferrer">PKCS#11 guide ↗</a>
+          <a href="https://github.com/sukujgrg/go-certstore/blob/main/docs/nss.md" target="_blank" rel="noreferrer">NSS guide ↗</a>
+          <a href="https://github.com/sukujgrg/go-certstore/releases" target="_blank" rel="noreferrer">Releases ↗</a>
+        </div>
+      </nav>
+      <div class="sidebar-footer"><span>MIT License</span><span>Go 1.23+</span></div>
+    </aside>
+
+    <main id="content" class="content">
+      <article>
+        <section class="doc-section intro" id="overview">
+          <div class="breadcrumbs"><span>github.com</span><b>/</b><span>sukujgrg</span><b>/</b><strong>go-certstore</strong></div>
+          <h1>go-certstore</h1>
+          <p class="lead">Access X.509 certificate identities and their private-key signers from Go. Use native operating-system stores, PKCS#11 tokens, or NSS databases through one focused API.</p>
+          <div class="callout key-callout"><strong>Private keys stay in their original backend.</strong><p>The library returns a <code>crypto.Signer</code>. Signing happens in Keychain, the Windows Certificate Store, a token, HSM, or NSS database.</p></div>
+        </section>
+
+        <section class="doc-section" id="install">
+          <h2>Installation<a class="anchor" href="#install" aria-label="Link to Installation">#</a></h2>
+          <p>Add the latest release to your module:</p>
+          <div class="code-block single-line"><div class="code-meta"><span>shell</span><button class="copy-button" type="button">Copy</button></div><pre><code>go get github.com/sukujgrg/go-certstore@latest</code></pre></div>
+        </section>
+
+        <section class="doc-section" id="quick-start">
+          <h2>Quick start<a class="anchor" href="#quick-start" aria-label="Link to Quick start">#</a></h2>
+          <p>Open the default backend for the current platform and list its identities:</p>
+          <div class="code-block"><div class="code-meta"><span>Go</span><button class="copy-button" type="button">Copy</button></div><pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="str">"context"</span>
+    <span class="str">"fmt"</span>
+
+    certstore <span class="str">"github.com/sukujgrg/go-certstore"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    ctx := context.<span class="fn">Background</span>()
+    store, err := certstore.<span class="fn">Open</span>(ctx)
+    <span class="kw">if</span> err != <span class="nil">nil</span> {
+        <span class="fn">panic</span>(err)
+    }
+    <span class="kw">defer</span> store.<span class="fn">Close</span>()
+
+    identities, err := store.<span class="fn">Identities</span>(ctx)
+    <span class="kw">if</span> err != <span class="nil">nil</span> {
+        <span class="fn">panic</span>(err)
+    }
+    fmt.<span class="fn">Printf</span>(<span class="str">"found %d identities\n"</span>, <span class="fn">len</span>(identities))
+}</code></pre></div>
+          <div class="callout note"><strong>Linux</strong><p>Linux has no native backend. Select <code>BackendPKCS11</code> or <code>BackendNSS</code> explicitly.</p></div>
+        </section>
+
+        <section class="doc-section" id="platforms">
+          <h2>Platform support<a class="anchor" href="#platforms" aria-label="Link to Platform support">#</a></h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Backend</th><th>Host OS</th><th>Status</th><th>cgo</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Keychain</strong><small>Security.framework</small></td><td>macOS</td><td><span class="status supported">Supported</span></td><td>Yes</td></tr>
+                <tr><td><strong>Certificate Store</strong><small>CNG or CryptoAPI</small></td><td>Windows</td><td><span class="status supported">Supported</span></td><td>Yes</td></tr>
+                <tr><td><strong>Native system store</strong></td><td>Linux</td><td><span class="status unavailable">Unavailable</span></td><td>No</td></tr>
+                <tr><td><strong>PKCS#11</strong><small>Explicit module path</small></td><td>macOS, Windows, Linux</td><td><span class="status supported">Supported</span></td><td>Yes</td></tr>
+                <tr><td><strong>NSS</strong><small>Explicit module + profile</small></td><td>macOS, Windows, Linux</td><td><span class="status supported">Supported</span></td><td>Yes</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="doc-section" id="backends">
+          <h2>Configure a backend<a class="anchor" href="#backends" aria-label="Link to Configure a backend">#</a></h2>
+          <p>Native stores require no backend options. PKCS#11 and NSS remain explicit so your application controls module discovery, profiles, tokens, and credentials.</p>
+          <div class="backend-switcher">
+            <div class="backend-tabs" role="tablist" aria-label="Backend examples">
+              <button role="tab" aria-selected="true" aria-controls="panel-native" id="tab-native" data-tab="native">Native</button>
+              <button role="tab" aria-selected="false" aria-controls="panel-pkcs11" id="tab-pkcs11" data-tab="pkcs11">PKCS#11</button>
+              <button role="tab" aria-selected="false" aria-controls="panel-nss" id="tab-nss" data-tab="nss">NSS</button>
+            </div>
+            <div class="backend-panel" id="panel-native" role="tabpanel" aria-labelledby="tab-native">
+              <h3 id="native">Native stores</h3><p>Uses macOS Keychain or the Windows Certificate Store for the current user.</p>
+              <div class="code-block"><div class="code-meta"><span>Go</span><button class="copy-button" type="button">Copy</button></div><pre><code>store, err := certstore.Open(ctx)
+if err != nil {
+    return err
+}
+defer store.Close()</code></pre></div>
+            </div>
+            <div class="backend-panel" id="panel-pkcs11" role="tabpanel" aria-labelledby="tab-pkcs11" hidden>
+              <h3 id="pkcs11">PKCS#11</h3><p>Use an explicit module for YubiKey PIV, OpenSC smart cards, HSMs, or SoftHSM.</p>
+              <div class="code-block"><div class="code-meta"><span>Go</span><button class="copy-button" type="button">Copy</button></div><pre><code>store, err := certstore.Open(ctx,
+    certstore.WithBackend(certstore.BackendPKCS11),
+    certstore.WithPKCS11Module(modulePath),
+    certstore.WithPKCS11TokenLabel("YubiKey PIV"),
+    certstore.WithCredentialPrompt(prompt),
+)</code></pre></div>
+              <p class="more-link"><a href="https://github.com/sukujgrg/go-certstore/blob/main/docs/pkcs11.md">Read the complete PKCS#11 guide →</a></p>
+            </div>
+            <div class="backend-panel" id="panel-nss" role="tabpanel" aria-labelledby="tab-nss" hidden>
+              <h3 id="nss">NSS</h3><p>Supply the <code>softokn3</code> module and an NSS profile or database directory.</p>
+              <div class="code-block"><div class="code-meta"><span>Go</span><button class="copy-button" type="button">Copy</button></div><pre><code>store, err := certstore.Open(ctx,
+    certstore.WithBackend(certstore.BackendNSS),
+    certstore.WithNSSModule(modulePath),
+    certstore.WithNSSProfileDir(profileDir),
+    certstore.WithCredentialPrompt(prompt),
+)</code></pre></div>
+              <p class="more-link"><a href="https://github.com/sukujgrg/go-certstore/blob/main/docs/nss.md">Read the complete NSS guide →</a></p>
+            </div>
+          </div>
+        </section>
+
+        <section class="doc-section" id="tls">
+          <h2>TLS client certificates<a class="anchor" href="#tls" aria-label="Link to TLS client certificates">#</a></h2>
+          <p>For long-lived clients, open the store once and use <code>NewClientCertificateSource</code>. It caches compatible certificates and keeps signers alive for concurrent handshakes.</p>
+          <div class="code-block"><div class="code-meta"><span>Go</span><button class="copy-button" type="button">Copy</button></div><pre><code>source := certstore.NewClientCertificateSource(ctx, store,
+    certstore.SelectOptions{
+        SubjectCN:            "client.example.com",
+        RequireClientAuthEKU: true,
+    },
+)
+defer source.Close()
+
+tlsConfig := &amp;tls.Config{
+    GetClientCertificate: source.GetClientCertificate,
+}</code></pre></div>
+          <div class="callout warning"><strong>Resource lifetime</strong><p>Close the source before the store. Close signers obtained directly with <code>certstore.CloseSigner</code>.</p></div>
+        </section>
+
+        <section class="doc-section" id="selection">
+          <h2>Identity selection<a class="anchor" href="#selection" aria-label="Link to Identity selection">#</a></h2>
+          <p>Single-result helpers rank matches. The current score prefers hardware-backed identities when requested, then currently valid certificates, then later expiration dates.</p>
+          <ul>
+            <li>Set <code>RequireCurrentlyValid</code> to reject expired or not-yet-valid certificates.</li>
+            <li>Use <code>FindIdentities</code> or <code>FilterIdentities</code> when you need every match.</li>
+            <li><code>ClientCertificateSource</code> always requires a currently valid certificate.</li>
+          </ul>
+        </section>
+
+        <section class="doc-section" id="credentials">
+          <h2>Credentials &amp; resource lifetime<a class="anchor" href="#credentials" aria-label="Link to Credentials and resource lifetime">#</a></h2>
+          <p><code>WithCredentialPrompt</code> gives credential collection to the application. The callback returns <code>[]byte</code>, and the library clears that buffer after use.</p>
+          <div class="callout warning"><strong>Security boundary</strong><p>Return a dedicated buffer. The cgo runtime or a dependency can make an internal copy, so this is not a high-assurance secret-memory system.</p></div>
+          <p class="more-link"><a href="https://pkg.go.dev/github.com/sukujgrg/go-certstore" target="_blank" rel="noreferrer">View the complete API and error reference →</a></p>
+        </section>
+
+        <section class="doc-section" id="examples">
+          <h2>Runnable examples<a class="anchor" href="#examples" aria-label="Link to Runnable examples">#</a></h2>
+          <p>The repository includes complete programs. They inspect local state and do not connect to a remote server.</p>
+          <div class="example-list">
+            <a href="https://github.com/sukujgrg/go-certstore/tree/main/examples/list-identities"><code>list-identities</code><span>List identities and certificate metadata.</span><b>↗</b></a>
+            <a href="https://github.com/sukujgrg/go-certstore/tree/main/examples/tls-client"><code>tls-client</code><span>Inspect TLS certificate selection.</span><b>↗</b></a>
+            <a href="https://github.com/sukujgrg/go-certstore/tree/main/examples/mtls-source"><code>mtls-source</code><span>Use the recommended long-lived mTLS pattern.</span><b>↗</b></a>
+            <a href="https://github.com/sukujgrg/go-certstore/tree/main/examples/export-cert"><code>export-cert</code><span>Export a leaf certificate or chain as PEM.</span><b>↗</b></a>
+          </div>
+        </section>
+
+        <footer class="doc-footer"><span>go-certstore is available under the MIT License.</span><a href="https://github.com/sukujgrg/go-certstore/issues">Report an issue ↗</a></footer>
+      </article>
+
+    </main>
+  </div>
+
+  <script src="site.js"></script>
+</body>
+</html>
