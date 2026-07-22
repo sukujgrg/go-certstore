@@ -13,6 +13,11 @@
 !internal/*/*.go
 !docs/
 !docs/*.md
+!docs/*.html
+!docs/*.css
+!docs/*.js
+!docs/*.png
+!docs/.nojekyll
 !examples/
 !examples/*/
 !examples/*/*.go
